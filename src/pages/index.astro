@@ -1,0 +1,39 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Sandrine Chausson" description="Personal website of Sandrine Chausson.">
+  <!-- Hero -->
+  <section class="py-8">
+    <h1 class="text-3xl font-semibold mb-2">Sandrine Chausson</h1>
+    <p class="text-stone-500 text-lg mb-8">Researcher · Data Scientist</p>
+    <p class="text-stone-700 leading-relaxed mb-4">
+      Welcome to my personal website. I work on [your field / institution — update me].
+      My research interests include spatial analysis, public health, and open data.
+    </p>
+    <p class="text-stone-700 leading-relaxed">
+      Below you'll find a selection of my projects, and occasionally some writing.
+    </p>
+  </section>
+
+  <hr class="border-stone-200 my-10" />
+
+  <!-- Featured project teaser -->
+  <section>
+    <h2 class="text-lg font-semibold mb-4">Featured project</h2>
+    <a href="/projects/allergen-map"
+       class="block border border-stone-200 rounded-lg p-5 hover:border-stone-400 hover:bg-white transition group">
+      <h3 class="font-medium group-hover:text-stone-600 transition-colors mb-1">
+        UK Allergen Exposure Map
+      </h3>
+      <p class="text-sm text-stone-500 leading-relaxed">
+        An interactive map of composite allergen exposure across Great Britain,
+        combining tree pollen species (birch, alder, hazel), grassland, plane trees,
+        and air pollution. Personalise the weights to match your own sensitivities.
+      </p>
+      <span class="text-sm text-stone-400 mt-3 inline-block group-hover:text-stone-600 transition-colors">
+        Explore →
+      </span>
+    </a>
+  </section>
+</Base>

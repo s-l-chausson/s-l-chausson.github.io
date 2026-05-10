@@ -1,0 +1,28 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+
+<Base title="Projects" description="Projects by Sandrine Chausson.">
+  <h1 class="text-2xl font-semibold mb-8">Projects</h1>
+
+  <ul class="space-y-4">
+    <li>
+      <a href="/projects/allergen-map"
+         class="block border border-stone-200 rounded-lg p-5 hover:border-stone-400 hover:bg-white transition group">
+        <h2 class="font-medium group-hover:text-stone-600 transition-colors mb-1">
+          UK Allergen Exposure Map
+        </h2>
+        <p class="text-sm text-stone-500 leading-relaxed">
+          Interactive composite allergen index for Great Britain — tree pollen,
+          grassland, plane trees, and air pollution. Adjust weights to your
+          own sensitivities.
+        </p>
+        <div class="flex gap-2 mt-3">
+          <span class="text-xs bg-stone-100 text-stone-500 px-2 py-0.5 rounded">R</span>
+          <span class="text-xs bg-stone-100 text-stone-500 px-2 py-0.5 rounded">GIS</span>
+          <span class="text-xs bg-stone-100 text-stone-500 px-2 py-0.5 rounded">Public Health</span>
+        </div>
+      </a>
+    </li>
+  </ul>
+</Base>

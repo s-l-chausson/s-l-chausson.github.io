@@ -1,0 +1,32 @@
+---
+import Base from '../../layouts/Base.astro';
+import AllergenMap from '../../components/AllergenMap.tsx';
+---
+
+<Base
+  title="UK Allergen Exposure Map"
+  description="Interactive composite allergen exposure map for Great Britain."
+>
+  <div class="mb-8">
+    <a href="/projects" class="text-sm text-stone-400 hover:text-stone-600 transition-colors">
+      ← Projects
+    </a>
+    <h1 class="text-2xl font-semibold mt-3 mb-2">UK Allergen Exposure Map</h1>
+    <p class="text-stone-500 leading-relaxed">
+      A composite allergen exposure index for Great Britain, built from the
+      National Forest Inventory, UKCEH Land Cover Map 2021, and DEFRA pollution data.
+      Adjust the weights below to reflect your personal sensitivities — the map updates instantly.
+    </p>
+  </div>
+
+  <!-- Full-width map — escape the max-w-3xl constraint -->
+  <div class="-mx-6">
+    <AllergenMap client:only="react" />
+  </div>
+
+  <div class="mt-8 text-xs text-stone-400 space-y-1">
+    <p><strong>Data sources:</strong> Forestry Commission NFI 2022 · UKCEH LCM 2021 · DEFRA PCM 2024</p>
+    <p><strong>Methodology:</strong> Z-score normalisation · weighted sum following McInnes et al. (2017)</p>
+    <p>Coverage: England, Scotland, Wales only. Northern Ireland not covered by the NFI.</p>
+  </div>
+</Base>

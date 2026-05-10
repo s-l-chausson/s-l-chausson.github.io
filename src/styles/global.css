@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+@layer base {
+  html {
+    font-family: 'Georgia', serif;
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-stone-50 text-stone-800;
+  }
+}
