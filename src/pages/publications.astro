@@ -1,96 +1,172 @@
 ---
 import Base from '../layouts/Base.astro';
 
+// ---------------------------------------------------------------------------
+// ORCID configuration
+// ---------------------------------------------------------------------------
+const ORCID_ID  = '0009-0005-4415-4962';
+const ORCID_API = `https://pub.orcid.org/v3.0/${ORCID_ID}`;
+const HEADERS   = { Accept: 'application/json' };
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+type PubType = 'journal' | 'conference' | 'preprint' | 'report' | 'other';
+
 interface Publication {
-  authors: string;
-  year: number;
-  title: string;
-  venue: string;       // journal or conference name
-  venueDetail?: string; // volume, issue, pages etc.
-  doi?: string;
-  pdf?: string;
-  type: 'journal' | 'conference' | 'preprint' | 'report';
+  title:    string;
+  authors:  string;
+  year:     number | null;
+  venue:    string | null;
+  doi:      string | null;
+  type:     PubType;
 }
 
-// -----------------------------------------------------------------------
-// Add your publications here — newest first within each group
-// -----------------------------------------------------------------------
-const publications: Publication[] = [
-  {
-    authors: 'Chausson, S., et al.',
-    year: 2024,
-    title: 'Your most recent paper title goes here',
-    venue: 'Journal Name',
-    venueDetail: 'Vol. 1, pp. 1–20',
-    doi: 'https://doi.org/10.xxxx/xxxxx',
-    type: 'journal',
-  },
-  {
-    authors: 'Chausson, S., Co-Author, A.',
-    year: 2023,
-    title: 'Another paper title',
-    venue: 'Conference on Example Topics',
-    type: 'conference',
-  },
-  // Add more entries above this line
-];
+// ---------------------------------------------------------------------------
+// ORCID type → our type
+// ---------------------------------------------------------------------------
+function mapType(orcidType: string): PubType {
+  if (['journal-article', 'book-chapter', 'book'].includes(orcidType)) return 'journal';
+  if (['conference-paper', 'conference-abstract', 'conference-poster'].includes(orcidType)) return 'conference';
+  if (orcidType === 'preprint') return 'preprint';
+  if (orcidType === 'report')   return 'report';
+  return 'other';
+}
 
-const byYear = publications.reduce<Record<number, Publication[]>>((acc, p) => {
-  (acc[p.year] ??= []).push(p);
+// ---------------------------------------------------------------------------
+// Fetch helpers — all errors return null so the page never crashes at build
+// ---------------------------------------------------------------------------
+async function fetchWorks() {
+  try {
+    const res  = await fetch(`${ORCID_API}/works`, { headers: HEADERS });
+    if (!res.ok) return null;
+    const data = await res.json() as any;
+    return (data.group ?? []) as any[];
+  } catch { return null; }
+}
+
+async function fetchWork(putCode: number): Promise<any | null> {
+  try {
+    const res  = await fetch(`${ORCID_API}/work/${putCode}`, { headers: HEADERS });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
+function extractDoi(externalIds: any[]): string | null {
+  const doi = externalIds?.find((e: any) => e['external-id-type'] === 'doi');
+  return doi?.['external-id-url']?.value ?? null;
+}
+
+function extractAuthors(work: any): string {
+  const contributors = work?.contributors?.contributor ?? [];
+  const names = contributors
+    .map((c: any) => c?.['credit-name']?.value)
+    .filter(Boolean) as string[];
+  if (names.length === 0) return 'Author(s) not listed';
+  if (names.length <= 4)  return names.join(', ');
+  return `${names.slice(0, 3).join(', ')}, et al.`;
+}
+
+// ---------------------------------------------------------------------------
+// Fetch all publications at build time
+// ---------------------------------------------------------------------------
+const groups = await fetchWorks();
+let publications: Publication[] = [];
+
+if (groups) {
+  const works = await Promise.all(
+    groups.map(async (group: any) => {
+      const summary  = group['work-summary']?.[0];
+      if (!summary) return null;
+      const putCode  = summary['put-code'];
+      const fullWork = await fetchWork(putCode);
+      const externalIds = summary['external-ids']?.['external-id'] ?? [];
+      return {
+        title:   summary.title?.title?.value ?? 'Untitled',
+        authors: extractAuthors(fullWork),
+        year:    summary['publication-date']?.year?.value
+                   ? parseInt(summary['publication-date'].year.value)
+                   : null,
+        venue:   summary['journal-title']?.value ?? null,
+        doi:     extractDoi(externalIds),
+        type:    mapType(summary.type ?? ''),
+      } satisfies Publication;
+    })
+  );
+  publications = works.filter((w): w is Publication => w !== null);
+}
+
+// Group by year, newest first; null-year entries go last
+const byYear = publications.reduce<Record<string, Publication[]>>((acc, p) => {
+  const key = p.year?.toString() ?? 'n.d.';
+  (acc[key] ??= []).push(p);
   return acc;
 }, {});
-const years = Object.keys(byYear).map(Number).sort((a, b) => b - a);
+const years = Object.keys(byYear).sort((a, b) => {
+  if (a === 'n.d.') return 1;
+  if (b === 'n.d.') return -1;
+  return parseInt(b) - parseInt(a);
+});
 
-const typeLabel: Record<Publication['type'], string> = {
+const typeLabel: Record<PubType, string> = {
   journal:    'Journal article',
   conference: 'Conference paper',
   preprint:   'Preprint',
   report:     'Report',
+  other:      'Other',
 };
 ---
 
 <Base title="Publications" description="Publications by Sandrine Chausson.">
-  <h1 class="text-2xl font-semibold mb-2">Publications</h1>
+  <div class="flex items-baseline justify-between mb-2">
+    <h1 class="text-2xl font-semibold">Publications</h1>
+    <a href={`https://orcid.org/${ORCID_ID}`}
+       target="_blank" rel="noopener"
+       class="text-xs text-stone-400 hover:text-stone-600 transition-colors">
+      ORCID ↗
+    </a>
+  </div>
   <p class="text-stone-500 mb-10">
-    Peer-reviewed articles, conference papers, and reports.
+    Automatically synced from my ORCID profile. Updated weekly.
   </p>
 
-  {years.map(year => (
-    <section class="mb-10">
-      <h2 class="text-sm font-semibold text-stone-400 uppercase tracking-widest mb-4">{year}</h2>
-      <ol class="space-y-6">
-        {byYear[year].map(pub => (
-          <li class="border-l-2 border-stone-200 pl-5">
-            <p class="text-xs text-stone-400 mb-0.5">{typeLabel[pub.type]}</p>
-            <p class="font-medium text-stone-800 leading-snug mb-1">
-              {pub.doi
-                ? <a href={pub.doi} target="_blank" rel="noopener"
-                     class="hover:text-stone-500 transition-colors">{pub.title}</a>
-                : pub.title}
-            </p>
-            <p class="text-sm text-stone-500">
-              {pub.authors}
-            </p>
-            <p class="text-sm text-stone-500 italic">
-              {pub.venue}{pub.venueDetail ? `, ${pub.venueDetail}` : ''}
-            </p>
-            <div class="flex gap-3 mt-2">
+  {publications.length === 0 ? (
+    <p class="text-stone-400 italic text-sm">
+      Could not load publications. View them on{' '}
+      <a href={`https://orcid.org/${ORCID_ID}`} target="_blank" rel="noopener"
+         class="underline hover:text-stone-600">ORCID</a>.
+    </p>
+  ) : (
+    years.map(year => (
+      <section class="mb-10">
+        <h2 class="text-sm font-semibold text-stone-400 uppercase tracking-widest mb-4">
+          {year}
+        </h2>
+        <ol class="space-y-6">
+          {byYear[year].map(pub => (
+            <li class="border-l-2 border-stone-200 pl-5">
+              <p class="text-xs text-stone-400 mb-0.5">{typeLabel[pub.type]}</p>
+              <p class="font-medium text-stone-800 leading-snug mb-1">
+                {pub.doi
+                  ? <a href={pub.doi} target="_blank" rel="noopener"
+                       class="hover:text-stone-500 transition-colors">{pub.title}</a>
+                  : pub.title}
+              </p>
+              <p class="text-sm text-stone-500">{pub.authors}</p>
+              {pub.venue && (
+                <p class="text-sm text-stone-500 italic">{pub.venue}</p>
+              )}
               {pub.doi && (
                 <a href={pub.doi} target="_blank" rel="noopener"
-                   class="text-xs text-stone-400 hover:text-stone-700 transition-colors">
+                   class="text-xs text-stone-400 hover:text-stone-700 transition-colors mt-2 inline-block">
                   DOI ↗
                 </a>
               )}
-              {pub.pdf && (
-                <a href={pub.pdf} target="_blank" rel="noopener"
-                   class="text-xs text-stone-400 hover:text-stone-700 transition-colors">
-                  PDF ↗
-                </a>
-              )}
-            </div>
-          </li>
-        ))}
-      </ol>
-    </section>
-  ))}
+            </li>
+          ))}
+        </ol>
+      </section>
+    ))
+  )}
 </Base>
