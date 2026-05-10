@@ -1,0 +1,149 @@
+---
+import Base from '../layouts/Base.astro';
+
+type EntryType = 'education' | 'position' | 'project' | 'publication';
+
+interface TimelineEntry {
+  type: EntryType;
+  period: string;           // e.g. "2021–present" or "2019"
+  title: string;
+  organisation?: string;
+  location?: string;
+  description?: string;
+  links?: { label: string; href: string }[];
+}
+
+// -----------------------------------------------------------------------
+// Edit this array to build your timeline — displayed in order (newest first)
+// -----------------------------------------------------------------------
+const entries: TimelineEntry[] = [
+  // ---------- POSITIONS ----------
+  {
+    type: 'position',
+    period: '2023–present',
+    title: 'Research Associate',
+    organisation: 'University of Example',
+    location: 'City, UK',
+    description:
+      'Working on spatial epidemiology and composite indicators for environmental health.',
+    links: [],
+  },
+  // ---------- PROJECTS ----------
+  {
+    type: 'project',
+    period: '2024–present',
+    title: 'UK Allergen Exposure Map',
+    organisation: 'Personal project',
+    description:
+      'Built a composite allergen indicator for Great Britain combining tree pollen ' +
+      'species from the NFI, grassland cover from UKCEH LCM 2021, and DEFRA air ' +
+      'pollution data. Personalised weights allow users to adjust the index to ' +
+      'their own sensitivities.',
+    links: [
+      { label: 'Interactive map', href: '/projects/allergen-map' },
+    ],
+  },
+  // ---------- EDUCATION ----------
+  {
+    type: 'education',
+    period: '2019–2023',
+    title: 'PhD in [Your Field]',
+    organisation: 'University of Example',
+    location: 'City, UK',
+    description: 'Thesis: "Your thesis title here." Supervised by Prof. Supervisor Name.',
+    links: [],
+  },
+  {
+    type: 'education',
+    period: '2017–2019',
+    title: 'MSc in [Your Programme]',
+    organisation: 'University of Example',
+    location: 'City, UK',
+    links: [],
+  },
+  {
+    type: 'education',
+    period: '2014–2017',
+    title: 'BSc in [Your Programme]',
+    organisation: 'University of Example',
+    location: 'City, France',
+    links: [],
+  },
+  // Add more entries above this line
+];
+
+const typeConfig: Record<EntryType, { label: string; dot: string; border: string }> = {
+  education:   { label: 'Education',   dot: 'bg-stone-400',  border: 'border-stone-200' },
+  position:    { label: 'Position',    dot: 'bg-stone-700',  border: 'border-stone-300' },
+  project:     { label: 'Project',     dot: 'bg-teal-500',   border: 'border-teal-200'  },
+  publication: { label: 'Publication', dot: 'bg-violet-400', border: 'border-violet-200'},
+};
+---
+
+<Base title="Experience" description="Experience and background of Sandrine Chausson.">
+  <h1 class="text-2xl font-semibold mb-2">Experience</h1>
+  <p class="text-stone-500 mb-4">
+    Education, positions, and projects — in reverse chronological order.
+  </p>
+
+  <!-- Legend -->
+  <div class="flex flex-wrap gap-4 mb-10">
+    {(Object.entries(typeConfig) as [EntryType, typeof typeConfig[EntryType]][]).map(([, cfg]) => (
+      <span class="flex items-center gap-1.5 text-xs text-stone-500">
+        <span class={`w-2 h-2 rounded-full ${cfg.dot}`} />
+        {cfg.label}
+      </span>
+    ))}
+  </div>
+
+  <!-- Timeline -->
+  <ol class="relative border-l border-stone-200 space-y-10 ml-2">
+    {entries.map(entry => {
+      const cfg = typeConfig[entry.type];
+      return (
+        <li class="ml-6">
+          {/* Dot */}
+          <span class={`absolute -left-[9px] flex h-4 w-4 items-center justify-center rounded-full ring-4 ring-stone-50 ${cfg.dot}`} />
+
+          {/* Period */}
+          <time class="text-xs font-medium text-stone-400 uppercase tracking-wide">
+            {entry.period}
+          </time>
+
+          {/* Type badge */}
+          <span class={`ml-2 text-xs border rounded px-1.5 py-0.5 ${cfg.border} text-stone-400`}>
+            {cfg.label}
+          </span>
+
+          {/* Content */}
+          <h2 class="mt-1.5 font-semibold text-stone-800">{entry.title}</h2>
+
+          {(entry.organisation || entry.location) && (
+            <p class="text-sm text-stone-500">
+              {[entry.organisation, entry.location].filter(Boolean).join(' · ')}
+            </p>
+          )}
+
+          {entry.description && (
+            <p class="mt-2 text-sm text-stone-600 leading-relaxed max-w-2xl">
+              {entry.description}
+            </p>
+          )}
+
+          {entry.links && entry.links.length > 0 && (
+            <div class="flex flex-wrap gap-3 mt-2">
+              {entry.links.map(link => (
+                <a
+                  href={link.href}
+                  class="text-xs text-stone-400 hover:text-stone-700 transition-colors border border-stone-200 rounded px-2 py-0.5 hover:border-stone-400"
+                >
+                  {link.label} →
+                </a>
+              ))}
+            </div>
+          )}
+        </li>
+      );
+    })}
+  </ol>
+</Base>

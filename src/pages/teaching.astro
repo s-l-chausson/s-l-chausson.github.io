@@ -1,0 +1,78 @@
+---
+import Base from '../layouts/Base.astro';
+
+interface Course {
+  title: string;
+  code?: string;
+  institution: string;
+  level: 'Undergraduate' | 'Postgraduate' | 'PhD' | 'Professional';
+  role: string;          // e.g. "Lecturer", "Teaching Assistant", "Guest lecturer"
+  years: string;         // e.g. "2022–present" or "2021, 2023"
+  description?: string;
+}
+
+// -----------------------------------------------------------------------
+// Add your courses here
+// -----------------------------------------------------------------------
+const courses: Course[] = [
+  {
+    title: 'Spatial Data Science',
+    code: 'GEOG5001',
+    institution: 'University of Example',
+    level: 'Postgraduate',
+    role: 'Lecturer',
+    years: '2023–present',
+    description:
+      'Introduction to GIS, remote sensing, and spatial statistics using R and Python. ' +
+      'Covered composite indicators, raster analysis, and interactive mapping.',
+  },
+  {
+    title: 'Urban Analytics',
+    institution: 'University of Example',
+    level: 'Postgraduate',
+    role: 'Teaching Assistant',
+    years: '2021–2022',
+    description: 'Lab sessions on urban data sources and visualisation.',
+  },
+  // Add more courses above this line
+];
+
+const levelOrder = ['Undergraduate', 'Postgraduate', 'PhD', 'Professional'] as const;
+const byLevel = courses.reduce<Record<string, Course[]>>((acc, c) => {
+  (acc[c.level] ??= []).push(c);
+  return acc;
+}, {});
+const levels = levelOrder.filter(l => byLevel[l]);
+---
+
+<Base title="Teaching" description="Teaching experience of Sandrine Chausson.">
+  <h1 class="text-2xl font-semibold mb-2">Teaching</h1>
+  <p class="text-stone-500 mb-10">
+    Courses and modules I have taught or contributed to.
+  </p>
+
+  {levels.map(level => (
+    <section class="mb-10">
+      <h2 class="text-sm font-semibold text-stone-400 uppercase tracking-widest mb-4">{level}</h2>
+      <div class="space-y-6">
+        {byLevel[level].map(course => (
+          <div class="border-l-2 border-stone-200 pl-5">
+            <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 mb-1">
+              <h3 class="font-medium text-stone-800">
+                {course.title}
+                {course.code && <span class="text-stone-400 font-normal text-sm ml-2">{course.code}</span>}
+              </h3>
+              <span class="text-sm text-stone-400 whitespace-nowrap">{course.years}</span>
+            </div>
+            <p class="text-sm text-stone-500 mb-1">
+              {course.role} · {course.institution}
+            </p>
+            {course.description && (
+              <p class="text-sm text-stone-600 leading-relaxed">{course.description}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  ))}
+</Base>

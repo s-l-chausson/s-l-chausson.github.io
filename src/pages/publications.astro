@@ -1,0 +1,96 @@
+---
+import Base from '../layouts/Base.astro';
+
+interface Publication {
+  authors: string;
+  year: number;
+  title: string;
+  venue: string;       // journal or conference name
+  venueDetail?: string; // volume, issue, pages etc.
+  doi?: string;
+  pdf?: string;
+  type: 'journal' | 'conference' | 'preprint' | 'report';
+}
+
+// -----------------------------------------------------------------------
+// Add your publications here — newest first within each group
+// -----------------------------------------------------------------------
+const publications: Publication[] = [
+  {
+    authors: 'Chausson, S., et al.',
+    year: 2024,
+    title: 'Your most recent paper title goes here',
+    venue: 'Journal Name',
+    venueDetail: 'Vol. 1, pp. 1–20',
+    doi: 'https://doi.org/10.xxxx/xxxxx',
+    type: 'journal',
+  },
+  {
+    authors: 'Chausson, S., Co-Author, A.',
+    year: 2023,
+    title: 'Another paper title',
+    venue: 'Conference on Example Topics',
+    type: 'conference',
+  },
+  // Add more entries above this line
+];
+
+const byYear = publications.reduce<Record<number, Publication[]>>((acc, p) => {
+  (acc[p.year] ??= []).push(p);
+  return acc;
+}, {});
+const years = Object.keys(byYear).map(Number).sort((a, b) => b - a);
+
+const typeLabel: Record<Publication['type'], string> = {
+  journal:    'Journal article',
+  conference: 'Conference paper',
+  preprint:   'Preprint',
+  report:     'Report',
+};
+---
+
+<Base title="Publications" description="Publications by Sandrine Chausson.">
+  <h1 class="text-2xl font-semibold mb-2">Publications</h1>
+  <p class="text-stone-500 mb-10">
+    Peer-reviewed articles, conference papers, and reports.
+  </p>
+
+  {years.map(year => (
+    <section class="mb-10">
+      <h2 class="text-sm font-semibold text-stone-400 uppercase tracking-widest mb-4">{year}</h2>
+      <ol class="space-y-6">
+        {byYear[year].map(pub => (
+          <li class="border-l-2 border-stone-200 pl-5">
+            <p class="text-xs text-stone-400 mb-0.5">{typeLabel[pub.type]}</p>
+            <p class="font-medium text-stone-800 leading-snug mb-1">
+              {pub.doi
+                ? <a href={pub.doi} target="_blank" rel="noopener"
+                     class="hover:text-stone-500 transition-colors">{pub.title}</a>
+                : pub.title}
+            </p>
+            <p class="text-sm text-stone-500">
+              {pub.authors}
+            </p>
+            <p class="text-sm text-stone-500 italic">
+              {pub.venue}{pub.venueDetail ? `, ${pub.venueDetail}` : ''}
+            </p>
+            <div class="flex gap-3 mt-2">
+              {pub.doi && (
+                <a href={pub.doi} target="_blank" rel="noopener"
+                   class="text-xs text-stone-400 hover:text-stone-700 transition-colors">
+                  DOI ↗
+                </a>
+              )}
+              {pub.pdf && (
+                <a href={pub.pdf} target="_blank" rel="noopener"
+                   class="text-xs text-stone-400 hover:text-stone-700 transition-colors">
+                  PDF ↗
+                </a>
+              )}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  ))}
+</Base>
