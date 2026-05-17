@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { fromUrl } from 'geotiff';
+import { fromArrayBuffer } from 'geotiff';
 
 // ── Layer definitions ─────────────────────────────────────────────────────────
 interface Layer {
@@ -66,14 +66,15 @@ interface LayerMeta {
   south: number; north: number;
 }
 
-// ── Colour ramp (blue → white → red, diverging) ───────────────────────────────
+// ── Colour ramp (YlOrRd sequential: low exposure → high exposure) ─────────────
+// ColorBrewer YlOrRd-5, perceptually uniform for sequential exposure data.
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 const STOPS: [number, [number, number, number]][] = [
-  [0.0,  [49,  54,  149]],
-  [0.25, [116, 173, 209]],
-  [0.5,  [255, 255, 255]],
-  [0.75, [253, 141,  60]],
-  [1.0,  [165,   0,  38]],
+  [0.0,  [255, 255, 204]],  // very light yellow
+  [0.25, [254, 217,  82]],  // yellow
+  [0.5,  [253, 141,  60]],  // orange
+  [0.75, [227,  26,  28]],  // red
+  [1.0,  [128,   0,  38]],  // dark red
 ];
 function colorRamp(t: number): [number, number, number] {
   t = Math.max(0, Math.min(1, t));
@@ -92,16 +93,17 @@ function colorRamp(t: number): [number, number, number] {
   return STOPS[STOPS.length - 1][1];
 }
 
-// ── Composite renderer ────────────────────────────────────────────────────────
-function renderComposite(
+// ── Composite renderer — paints directly into a provided canvas ───────────────
+function renderCompositeToCanvas(
+  canvas: HTMLCanvasElement,
   arrays: Record<string, Float32Array>,
   weights: Record<string, number>,
   ncols: number,
   nrows: number,
-): string {
+): void {
   const n = ncols * nrows;
 
-  // Compute composite and collect valid values for percentile scaling
+  // Compute composite and collect valid (land) values for percentile scaling
   const composite = new Float32Array(n);
   const valid: number[] = [];
   for (let i = 0; i < n; i++) {
@@ -112,39 +114,38 @@ function renderComposite(
       sum += (weights[id] ?? 0) * v;
     }
     composite[i] = land ? sum : NaN;
-    if (land && i % 7 === 0) valid.push(sum); // sample ~14 % for perf
+    if (land && i % 5 === 0) valid.push(sum); // sample ~20% for perf
   }
 
-  // Symmetric clip at 98th-percentile absolute value for colour scale
+  // Stretch colour scale across p05–p95 of land values so 90% of pixels
+  // use the full ramp, avoiding near-white wash from skewed distributions.
   valid.sort((a, b) => a - b);
-  const p02 = valid[Math.floor(valid.length * 0.02)] ?? -1;
-  const p98 = valid[Math.floor(valid.length * 0.98)] ??  1;
-  const clip = Math.max(Math.abs(p02), Math.abs(p98), 0.001);
+  const lo = valid[Math.floor(valid.length * 0.05)] ?? 0;
+  const hi = valid[Math.floor(valid.length * 0.95)] ?? 1;
+  const range = Math.max(hi - lo, 0.001);
 
-  // Render to canvas
-  const canvas = document.createElement('canvas');
+  // Paint into the canvas
   canvas.width  = ncols;
   canvas.height = nrows;
-  const ctx      = canvas.getContext('2d')!;
-  const imgData  = ctx.createImageData(ncols, nrows);
-  const d        = imgData.data;
+  const ctx     = canvas.getContext('2d')!;
+  const imgData = ctx.createImageData(ncols, nrows);
+  const d       = imgData.data;
 
   for (let i = 0; i < n; i++) {
     const v    = composite[i];
     const base = i * 4;
     if (!isFinite(v)) {
-      d[base + 3] = 0; // transparent
+      d[base + 3] = 0; // transparent (sea / outside GB)
     } else {
-      const t       = 0.5 + v / (2 * clip);
+      const t       = Math.max(0, Math.min(1, (v - lo) / range));
       const [r,g,b] = colorRamp(t);
       d[base]     = r;
       d[base + 1] = g;
       d[base + 2] = b;
-      d[base + 3] = 210;
+      d[base + 3] = 215;
     }
   }
   ctx.putImageData(imgData, 0, 0);
-  return canvas.toDataURL('image/png');
 }
 
 // ── Weight slider ─────────────────────────────────────────────────────────────
@@ -176,30 +177,25 @@ function WeightSlider({
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function AllergenMap() {
-  const mapRef        = useRef<maplibregl.Map | null>(null);
-  const containerRef  = useRef<HTMLDivElement>(null);
-  const layerData     = useRef<Record<string, Float32Array>>({});
-  const metaRef       = useRef<LayerMeta | null>(null);
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mapReady      = useRef(false);
+  const mapRef           = useRef<maplibregl.Map | null>(null);
+  const containerRef     = useRef<HTMLDivElement>(null);
+  const layerData        = useRef<Record<string, Float32Array>>({});
+  const metaRef          = useRef<LayerMeta | null>(null);
+  const compositeCanvas  = useRef<HTMLCanvasElement | null>(null);
+  const debounceTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mapReady         = useRef(false);
 
   const [weights, setWeights]     = useState<Record<string, number>>(DEFAULT_WEIGHTS);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [loadMsg, setLoadMsg]     = useState('Loading allergen layers…');
 
-  // Update composite image on the map
+  // Update composite by repainting the canvas — MapLibre reads it each frame.
   const updateMap = useCallback((w: Record<string, number>) => {
-    const map  = mapRef.current;
-    const meta = metaRef.current;
-    if (!map || !meta || !mapReady.current) return;
-    const loaded = Object.keys(layerData.current).length === LAYERS.length;
-    if (!loaded) return;
-
-    const dataUrl = renderComposite(layerData.current, w, meta.ncols, meta.nrows);
-    const src = map.getSource('composite') as maplibregl.ImageSource | undefined;
-    if (src) {
-      src.updateImage({ url: dataUrl });
-    }
+    const meta   = metaRef.current;
+    const canvas = compositeCanvas.current;
+    if (!meta || !canvas || !mapReady.current) return;
+    if (Object.keys(layerData.current).length !== LAYERS.length) return;
+    renderCompositeToCanvas(canvas, layerData.current, w, meta.ncols, meta.nrows);
   }, []);
 
   // Debounced weight change
@@ -241,8 +237,11 @@ export default function AllergenMap() {
       setLoadMsg(`Loading ${ids.length} allergen layers…`);
       try {
         await Promise.all(ids.map(async id => {
-          const tiff  = await fromUrl(`/data/${id}.tif`);
-          const image = await tiff.getImage();
+          const res    = await fetch(`/data/${id}.tif`);
+          if (!res.ok) throw new Error(`HTTP ${res.status} for ${id}.tif`);
+          const buf    = await res.arrayBuffer();
+          const tiff   = await fromArrayBuffer(buf);
+          const image  = await tiff.getImage();
           const rasters = await image.readRasters();
           layerData.current[id] = rasters[0] as Float32Array;
         }));
@@ -275,10 +274,23 @@ export default function AllergenMap() {
           [m.east,  m.south],
           [m.west,  m.south],
         ];
-        const dataUrl = renderComposite(layerData.current, DEFAULT_WEIGHTS, m.ncols, m.nrows);
-        map.addSource('composite', { type: 'image', url: dataUrl, coordinates: coords });
-        map.addLayer({ id: 'composite-layer', type: 'raster', source: 'composite',
-                       paint: { 'raster-opacity': 0.8, 'raster-fade-duration': 0 } });
+
+        // Create canvas, paint composite, hand directly to MapLibre (no data URL needed)
+        const canvas = document.createElement('canvas');
+        compositeCanvas.current = canvas;
+        renderCompositeToCanvas(canvas, layerData.current, DEFAULT_WEIGHTS, m.ncols, m.nrows);
+
+        map.addSource('composite', {
+          type: 'canvas',
+          canvas,
+          coordinates: coords,
+          animate: true,   // MapLibre reads the canvas each frame → updateMap just repaints
+        } as unknown as maplibregl.CanvasSourceSpecification);
+        map.addLayer({
+          id: 'composite-layer', type: 'raster', source: 'composite',
+          paint: { 'raster-opacity': 0.8, 'raster-fade-duration': 0 },
+        });
+
         mapReady.current = true;
         if (!cancelled) setLoadState('ready');
       });
@@ -289,6 +301,7 @@ export default function AllergenMap() {
       cancelled = true;
       mapRef.current?.remove();
       mapRef.current = null;
+      compositeCanvas.current = null;
       mapReady.current = false;
     };
   }, []);
@@ -327,10 +340,10 @@ export default function AllergenMap() {
             <div className="flex items-center gap-1.5">
               <span className="text-stone-400">Low</span>
               <div className="w-24 h-2.5 rounded"
-                   style={{ background: 'linear-gradient(to right, #3136d5, #74add1, #ffffff, #fd8d3c, #a50026)' }} />
+                   style={{ background: 'linear-gradient(to right, #ffffcc, #fed152, #fd8d3c, #e31a1c, #800026)' }} />
               <span className="text-stone-400">High</span>
             </div>
-            <p className="text-stone-300 mt-0.5 text-[10px]">relative to GB average</p>
+            <p className="text-stone-300 mt-0.5 text-[10px]">relative to GB p5–p95</p>
           </div>
         )}
       </div>
