@@ -2,18 +2,63 @@
 import Base from '../layouts/Base.astro';
 ---
 
-<Base title="Sandrine Chausson" description="Personal website of Sandrine Chausson.">
+<Base title="Sandrine Chausson" description="Personal website of Sandrine Chausson, PhD researcher in computational social science at the University of Edinburgh.">
   <!-- Hero -->
   <section class="py-8">
-    <h1 class="text-3xl font-semibold mb-2">Sandrine Chausson</h1>
-    <p class="text-stone-500 text-lg mb-8">Researcher · Data Scientist</p>
-    <p class="text-stone-700 leading-relaxed mb-4">
-      Welcome to my personal website. I work on [your field / institution — update me].
-      My research interests include spatial analysis, public health, and open data.
-    </p>
-    <p class="text-stone-700 leading-relaxed">
-      Below you'll find a selection of my projects, and occasionally some writing.
-    </p>
+    <div class="flex flex-col sm:flex-row sm:items-center gap-6 mb-8">
+      <img
+        src="/profile.jpg"
+        alt="Sandrine Chausson"
+        width="160"
+        height="160"
+        class="w-32 h-32 sm:w-40 sm:h-40 rounded-full object-cover ring-2 ring-stone-200 flex-shrink-0"
+      />
+      <div>
+        <h1 class="text-3xl font-semibold mb-2">Sandrine Chausson</h1>
+        <p class="text-stone-500 text-lg">PhD Researcher · Computational Social Science</p>
+      </div>
+    </div>
+
+    <div class="space-y-4 text-stone-700 leading-relaxed">
+      <p>
+        Hello! My name is Sandrine and I'm a final-year PhD student in the
+        <a href="https://informatics.ed.ac.uk" target="_blank" rel="noopener"
+           class="underline decoration-stone-300 hover:decoration-stone-600 transition-colors">School of Informatics</a>
+        at the University of Edinburgh, where I am part of the
+        <a href="https://smash.inf.ed.ac.uk" target="_blank" rel="noopener"
+           class="underline decoration-stone-300 hover:decoration-stone-600 transition-colors">SMASH research group</a>
+        and the
+        <a href="https://web.inf.ed.ac.uk/ilcc" target="_blank" rel="noopener"
+           class="underline decoration-stone-300 hover:decoration-stone-600 transition-colors">Institute of Language, Cognition and Computation (ILCC)</a>.
+        My PhD research, supervised by <a href="https://sweb.inf.ed.ac.uk/bross3/" target="_blank" rel="noopener"
+           class="underline decoration-stone-300 hover:decoration-stone-600 transition-colors">Dr Björn Ross</a>, focuses on developing computational text analysis
+        and data science methods for inductive social science research and applies these to investigating
+        the dynamics of collective sense-making processes on social media.
+      </p>
+
+      <p>
+        In parallel to my PhD, I am also a Research Associate at the University of Sheffield in the School of Information,
+        Journalism and Communication, where I work with <a href="https://sheffield.ac.uk/ijc/people/academic-staff/sara-torsner" target="_blank" rel="noopener"
+           class="underline decoration-stone-300 hover:decoration-stone-600 transition-colors">Dr Sara Torsner</a> on the ESRC-funded research
+        project <a href="https://www.profilingimpunity.org/" target="_blank" rel="noopener"
+           class="underline decoration-stone-300 hover:decoration-stone-600 transition-colors">Profiling impunity for human rights violations against journalists: A systematic
+        account of state-based harm and practices of resistance</a>.
+      </p>
+
+      <p>
+        With a background in Politics, Philosophy and Economics from the University of York and
+        Computer Science from Imperial College London, my technical expertise lies in applied Natural
+        Language Processing using Large Language Models and Machine Learning. My research, with its
+        focus on theory, mixed-methods and interdisciplinarity, contributes to the fields of sociology,
+        cultural studies, political science and communication. Throughout my academic journey, I have
+        collaborated with institutions such as the Alan Turing Institute, the Defence Science and
+        Technology Laboratory (Dstl), the University of California Berkeley, and the Queensland
+        University of Technology. I am also a dedicated educator, having worked as Teaching Fellow
+        and Teaching Assistant at the University of Edinburgh, where I co-created, organised and
+        delivered interdisciplinary social data science related MSc courses at the Edinburgh Futures
+        Institute and supervised several undergraduate and master's students.
+      </p>
+    </div>
   </section>
 
   <hr class="border-stone-200 my-10" />

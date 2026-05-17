@@ -1,0 +1,58 @@
+{
+  "birch": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "alder": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "hazel": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "grassland": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "plane": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "no2": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "pm25": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  }
+}
