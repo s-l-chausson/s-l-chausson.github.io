@@ -72,8 +72,18 @@ function computeComposite(
 
 // ── Canvas painter ────────────────────────────────────────────────────────────
 /**
- * Paint composite values onto a canvas using a pre-determined [lo, hi] scale.
- * lo/hi are fixed across months so the colour meaning is consistent.
+ * Paint composite values onto a canvas with Mercator-corrected row sampling.
+ *
+ * Our source data is linearly spaced in WGS84 latitude, but MapLibre renders
+ * canvas sources with linear interpolation in Web Mercator y.  These two
+ * conventions diverge — at UK latitudes the northern Mercator scale factor
+ * (~2.1) is ~37 % larger than the southern one (~1.54) — causing content to
+ * appear shifted ~35–40 km northward when painted naively.
+ *
+ * Fix: for each output canvas row r (which MapLibre will place at a specific
+ * Mercator y), compute the WGS84 latitude that Mercator y corresponds to, then
+ * sample the source data at that latitude.  This makes the canvas Mercator-
+ * compatible so that MapLibre's linear rendering gives geographic accuracy.
  */
 function paintCanvas(
   canvas:  HTMLCanvasElement,
@@ -82,7 +92,16 @@ function paintCanvas(
   nrows:   number,
   lo:      number,
   hi:      number,
+  west:    number,
+  east:    number,
+  south:   number,
+  north:   number,
 ) {
+  const R     = 6_378_137;          // WGS84 semi-major axis (m)
+  const toRad = Math.PI / 180;
+  const yN    = R * Math.log(Math.tan(Math.PI / 4 + north * toRad / 2));
+  const yS    = R * Math.log(Math.tan(Math.PI / 4 + south * toRad / 2));
+
   const range = Math.max(hi - lo, 1e-6);
   canvas.width  = ncols;
   canvas.height = nrows;
@@ -90,18 +109,31 @@ function paintCanvas(
   const img = ctx.createImageData(ncols, nrows);
   const d   = img.data;
 
-  for (let i = 0; i < data.length; i++) {
-    const v    = data[i];
-    const base = i * 4;
-    if (!isFinite(v)) {
-      d[base + 3] = 0; // transparent — sea / outside GB
-    } else {
-      const t       = (v - lo) / range;
-      const [r,g,b] = colorRamp(t);
-      d[base]     = r;
-      d[base + 1] = g;
-      d[base + 2] = b;
-      d[base + 3] = 210;
+  for (let row = 0; row < nrows; row++) {
+    // Mercator y for this canvas row (linearly distributed in Mercator)
+    const yMerc = yN - (row / nrows) * (yN - yS);
+    // WGS84 latitude for that Mercator y
+    const lat   = (2 * Math.atan(Math.exp(yMerc / R)) - Math.PI / 2) / toRad;
+    // Corresponding source row (data is linearly spaced in WGS84 degrees)
+    const srcRow = Math.round((north - lat) / (north - south) * nrows);
+
+    for (let col = 0; col < ncols; col++) {
+      const base = (row * ncols + col) * 4;
+      if (srcRow < 0 || srcRow >= nrows) {
+        d[base + 3] = 0;
+        continue;
+      }
+      const v = data[srcRow * ncols + col];
+      if (!isFinite(v)) {
+        d[base + 3] = 0; // transparent — sea / outside GB
+      } else {
+        const t       = (v - lo) / range;
+        const [r,g,b] = colorRamp(t);
+        d[base]     = r;
+        d[base + 1] = g;
+        d[base + 2] = b;
+        d[base + 3] = 210;
+      }
     }
   }
   ctx.putImageData(img, 0, 0);
@@ -124,7 +156,7 @@ export default function AllergenMap() {
   // Pre-computed composite for each of the 12 months
   const compositesRef  = useRef<Float32Array[]>([]);
   // Colour scale is always [0, 1] — no runtime computation needed.
-  const gridRef        = useRef<{ ncols: number; nrows: number } | null>(null);
+  const gridRef        = useRef<{ ncols: number; nrows: number; west: number; east: number; south: number; north: number } | null>(null);
 
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [month, setMonth]   = useState(() => new Date().getMonth());
@@ -160,7 +192,7 @@ export default function AllergenMap() {
         const speciesToLoad = Object.keys(TEST_WEIGHTS).filter(s => TEST_WEIGHTS[s] !== 0);
 
         const { ncols, nrows, west, east, south, north } = meta[speciesToLoad[0]];
-        gridRef.current = { ncols, nrows };
+        gridRef.current = { ncols, nrows, west, east, south, north };
         const nPixels = ncols * nrows;
 
         // ── 3. Fetch species layers in parallel ────────────────────────────
@@ -184,7 +216,7 @@ export default function AllergenMap() {
         const initialMonth = new Date().getMonth();
         const canvas = document.createElement('canvas');
         canvasRef.current = canvas;
-        paintCanvas(canvas, composites[initialMonth], ncols, nrows, 0, 1);
+        paintCanvas(canvas, composites[initialMonth], ncols, nrows, 0, 1, west, east, south, north);
 
         // ── 7. Add canvas source + raster layer ───────────────────────────
         map.addSource('overlay', {
@@ -220,7 +252,8 @@ export default function AllergenMap() {
     const grid       = gridRef.current;
     const composites = compositesRef.current;
     if (!canvas || !grid || composites.length === 0) return;
-    paintCanvas(canvas, composites[month], grid.ncols, grid.nrows, 0, 1);
+    const { ncols, nrows, west, east, south, north } = grid;
+    paintCanvas(canvas, composites[month], ncols, nrows, 0, 1, west, east, south, north);
   }, [month]);
 
   // ── Render ────────────────────────────────────────────────────────────────
