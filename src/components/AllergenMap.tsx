@@ -297,124 +297,128 @@ export default function AllergenMap() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ position: 'relative', width: '100%', height: '600px' }}>
-      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+    <div style={{ display: 'flex', alignItems: 'stretch', gap: 16, width: '100%' }}>
 
-      {/* Loading */}
-      {status === 'loading' && (
-        <div style={{
-          position: 'absolute', inset: 0, display: 'flex',
-          alignItems: 'center', justifyContent: 'center',
-          background: 'rgba(250,250,249,0.85)', zIndex: 10,
-        }}>
-          <div className="w-7 h-7 border-4 border-stone-300 border-t-stone-600 rounded-full animate-spin" />
-        </div>
-      )}
+      {/* ── Map column ───────────────────────────────────────────────────────── */}
+      <div style={{ position: 'relative', flex: '1 1 0', minWidth: 0, height: '640px' }}>
+        <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
-      {/* Error */}
-      {status === 'error' && (
-        <div style={{
-          position: 'absolute', inset: 0, display: 'flex',
-          alignItems: 'center', justifyContent: 'center',
-          background: 'rgba(250,250,249,0.85)', zIndex: 10,
-        }}>
-          <p className="text-sm text-red-500 px-6 text-center">Failed to load allergen data.</p>
-        </div>
-      )}
-
-      {status === 'ready' && (
-        <>
-          {/* ── Weights panel — top-left ── */}
+        {/* Loading */}
+        {status === 'loading' && (
           <div style={{
-            position: 'absolute', top: 12, left: 12, zIndex: 10,
-            background: 'rgba(255,255,255,0.95)',
-            borderRadius: 10, padding: '12px 14px',
-            boxShadow: '0 1px 6px rgba(0,0,0,0.14)',
-            minWidth: 180,
+            position: 'absolute', inset: 0, display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(250,250,249,0.85)', zIndex: 10,
           }}>
-            <p style={{ fontSize: 12, fontWeight: 700, color: '#44403c', margin: '0 0 10px' }}>
-              Allergen weights
-            </p>
-
-            {SPECIES_CONFIG.map(({ key, label }) => (
-              <div key={key} style={{
-                display: 'flex', alignItems: 'center',
-                justifyContent: 'space-between', marginBottom: 7, gap: 10,
-              }}>
-                <label style={{ fontSize: 12, color: '#57534e', whiteSpace: 'nowrap' }}>
-                  {label}
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  step="any"
-                  value={weightInputs[key]}
-                  onChange={e =>
-                    setWeightInputs(prev => ({ ...prev, [key]: e.target.value }))
-                  }
-                  style={{
-                    width: 60, fontSize: 12, padding: '3px 6px',
-                    border: '1px solid #d6d3d1', borderRadius: 5,
-                    textAlign: 'right', outline: 'none',
-                    color: '#1c1917', background: '#fafaf9',
-                  }}
-                />
-              </div>
-            ))}
-
-            <button
-              onClick={handleGenerate}
-              style={{
-                marginTop: 4, width: '100%', padding: '5px 0',
-                fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                background: '#e31a1c', color: '#fff',
-                border: 'none', borderRadius: 6,
-              }}
-            >
-              Generate
-            </button>
+            <div className="w-7 h-7 border-4 border-stone-300 border-t-stone-600 rounded-full animate-spin" />
           </div>
+        )}
 
-          {/* ── Month slider — centred at bottom ── */}
+        {/* Error */}
+        {status === 'error' && (
           <div style={{
-            position: 'absolute', bottom: 36, left: '50%',
-            transform: 'translateX(-50%)', zIndex: 10,
-            background: 'rgba(255,255,255,0.93)',
-            borderRadius: 10, padding: '8px 18px 10px',
-            boxShadow: '0 1px 6px rgba(0,0,0,0.14)',
-            minWidth: 230, textAlign: 'center',
+            position: 'absolute', inset: 0, display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(250,250,249,0.85)', zIndex: 10,
           }}>
-            <p style={{ fontSize: 13, fontWeight: 600, color: '#44403c', margin: '0 0 6px' }}>
-              {MONTH_NAMES[month]}
-            </p>
-            <input
-              type="range" min={0} max={11} step={1}
-              value={month}
-              onChange={e => setMonth(Number(e.target.value))}
-              style={{ width: '100%', accentColor: '#e31a1c', cursor: 'pointer' }}
-            />
-            <div style={{
-              display: 'flex', justifyContent: 'space-between',
-              fontSize: 10, color: '#a8a29e', marginTop: 3,
+            <p className="text-sm text-red-500 px-6 text-center">Failed to load allergen data.</p>
+          </div>
+        )}
+
+        {/* ── Month slider — centred at bottom ── */}
+        <div style={{
+          position: 'absolute', bottom: 36, left: '50%',
+          transform: 'translateX(-50%)', zIndex: 10,
+          background: 'rgba(255,255,255,0.93)',
+          borderRadius: 10, padding: '8px 18px 10px',
+          boxShadow: '0 1px 6px rgba(0,0,0,0.14)',
+          minWidth: 230, textAlign: 'center',
+        }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: '#44403c', margin: '0 0 6px' }}>
+            {MONTH_NAMES[month]}
+          </p>
+          <input
+            type="range" min={0} max={11} step={1}
+            value={month}
+            onChange={e => setMonth(Number(e.target.value))}
+            style={{ width: '100%', accentColor: '#e31a1c', cursor: 'pointer' }}
+          />
+          <div style={{
+            display: 'flex', justifyContent: 'space-between',
+            fontSize: 10, color: '#a8a29e', marginTop: 3,
+          }}>
+            <span>Jan</span><span>Apr</span><span>Jul</span><span>Oct</span><span>Dec</span>
+          </div>
+        </div>
+
+        {/* ── Legend — bottom-left ── */}
+        <div style={{ position: 'absolute', bottom: 36, left: 12, zIndex: 10 }}
+             className="bg-white/90 rounded px-2.5 py-2 shadow text-xs text-stone-600">
+          <p className="font-medium mb-1">Composite allergen risk</p>
+          <div className="flex items-center gap-1.5">
+            <span className="text-stone-400">Low</span>
+            <div className="w-24 h-2.5 rounded"
+                 style={{ background: 'linear-gradient(to right, #ffffcc, #fed152, #fd8d3c, #e31a1c, #800026)' }} />
+            <span className="text-stone-400">High</span>
+          </div>
+          <p className="text-stone-400 mt-0.5 text-[10px]">0 = no exposure · scale fixed per weights</p>
+        </div>
+      </div>
+
+      {/* ── Sidebar — weights panel ───────────────────────────────────────────── */}
+      <div style={{
+        width: 200, flexShrink: 0,
+        display: 'flex', flexDirection: 'column',
+        background: '#fafaf9',
+        border: '1px solid #e7e5e4',
+        borderRadius: 10,
+        padding: '14px 14px 12px',
+      }}>
+        <p style={{ fontSize: 13, fontWeight: 700, color: '#44403c', margin: '0 0 12px' }}>
+          Allergen weights
+        </p>
+
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {SPECIES_CONFIG.map(({ key, label }) => (
+            <div key={key} style={{
+              display: 'flex', alignItems: 'center',
+              justifyContent: 'space-between', marginBottom: 8, gap: 8,
             }}>
-              <span>Jan</span><span>Apr</span><span>Jul</span><span>Oct</span><span>Dec</span>
+              <label style={{ fontSize: 12, color: '#57534e', whiteSpace: 'nowrap' }}>
+                {label}
+              </label>
+              <input
+                type="number"
+                min={0}
+                step="any"
+                value={weightInputs[key]}
+                onChange={e =>
+                  setWeightInputs(prev => ({ ...prev, [key]: e.target.value }))
+                }
+                style={{
+                  width: 58, fontSize: 12, padding: '3px 6px',
+                  border: '1px solid #d6d3d1', borderRadius: 5,
+                  textAlign: 'right', outline: 'none',
+                  color: '#1c1917', background: '#fff',
+                }}
+              />
             </div>
-          </div>
+          ))}
+        </div>
 
-          {/* ── Legend — bottom-left ── */}
-          <div style={{ position: 'absolute', bottom: 120, left: 12, zIndex: 10 }}
-               className="bg-white/90 rounded px-2.5 py-2 shadow text-xs text-stone-600">
-            <p className="font-medium mb-1">Composite allergen risk</p>
-            <div className="flex items-center gap-1.5">
-              <span className="text-stone-400">Low</span>
-              <div className="w-24 h-2.5 rounded"
-                   style={{ background: 'linear-gradient(to right, #ffffcc, #fed152, #fd8d3c, #e31a1c, #800026)' }} />
-              <span className="text-stone-400">High</span>
-            </div>
-            <p className="text-stone-400 mt-0.5 text-[10px]">0 = no exposure · scale fixed per weights</p>
-          </div>
-        </>
-      )}
+        <button
+          onClick={handleGenerate}
+          style={{
+            marginTop: 10, width: '100%', padding: '6px 0',
+            fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            background: '#e31a1c', color: '#fff',
+            border: 'none', borderRadius: 6,
+          }}
+        >
+          Generate
+        </button>
+      </div>
+
     </div>
   );
 }
