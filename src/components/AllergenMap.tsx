@@ -325,16 +325,27 @@ export default function AllergenMap() {
           </div>
         )}
 
-        {/* ── Month slider — centred at bottom ── */}
+        {/* ── Legend — top-left ── */}
+        <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10 }}
+             className="bg-white/90 rounded px-2.5 py-2 shadow text-xs text-stone-600">
+          <p className="font-medium mb-1">Composite allergen risk</p>
+          <div className="flex items-center gap-1.5">
+            <span className="text-stone-400">Low</span>
+            <div className="w-24 h-2.5 rounded"
+                 style={{ background: 'linear-gradient(to right, #ffffcc, #fed152, #fd8d3c, #e31a1c, #800026)' }} />
+            <span className="text-stone-400">High</span>
+          </div>
+        </div>
+
+        {/* ── Month slider — full-width at bottom ── */}
         <div style={{
-          position: 'absolute', bottom: 36, left: '50%',
-          transform: 'translateX(-50%)', zIndex: 10,
+          position: 'absolute', bottom: 28, left: 12, right: 12, zIndex: 10,
           background: 'rgba(255,255,255,0.93)',
-          borderRadius: 10, padding: '8px 18px 10px',
+          borderRadius: 10, padding: '8px 14px 10px',
           boxShadow: '0 1px 6px rgba(0,0,0,0.14)',
-          minWidth: 230, textAlign: 'center',
+          textAlign: 'center',
         }}>
-          <p style={{ fontSize: 13, fontWeight: 600, color: '#44403c', margin: '0 0 6px' }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: '#44403c', margin: '0 0 4px' }}>
             {MONTH_NAMES[month]}
           </p>
           <input
@@ -346,22 +357,12 @@ export default function AllergenMap() {
           <div style={{
             display: 'flex', justifyContent: 'space-between',
             fontSize: 10, color: '#a8a29e', marginTop: 3,
+            userSelect: 'none',
           }}>
-            <span>Jan</span><span>Apr</span><span>Jul</span><span>Oct</span><span>Dec</span>
+            {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map(m => (
+              <span key={m}>{m}</span>
+            ))}
           </div>
-        </div>
-
-        {/* ── Legend — bottom-left ── */}
-        <div style={{ position: 'absolute', bottom: 36, left: 12, zIndex: 10 }}
-             className="bg-white/90 rounded px-2.5 py-2 shadow text-xs text-stone-600">
-          <p className="font-medium mb-1">Composite allergen risk</p>
-          <div className="flex items-center gap-1.5">
-            <span className="text-stone-400">Low</span>
-            <div className="w-24 h-2.5 rounded"
-                 style={{ background: 'linear-gradient(to right, #ffffcc, #fed152, #fd8d3c, #e31a1c, #800026)' }} />
-            <span className="text-stone-400">High</span>
-          </div>
-          <p className="text-stone-400 mt-0.5 text-[10px]">0 = no exposure · scale fixed per weights</p>
         </div>
       </div>
 
