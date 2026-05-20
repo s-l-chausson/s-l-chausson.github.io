@@ -241,7 +241,8 @@ export default function AllergenMap() {
         ]);
 
         const keys = SPECIES_CONFIG.map(s => s.key);
-        const { ncols, nrows, west, east, south, north } = meta[keys[0]];
+        const firstMetaKey = SPECIES_CONFIG[0].fileKey ?? SPECIES_CONFIG[0].key;
+        const { ncols, nrows, west, east, south, north } = meta[firstMetaKey];
         gridRef.current  = { ncols, nrows, west, east, south, north };
         nPixelsRef.current = ncols * nrows;
         seasonRef.current  = config.season;
