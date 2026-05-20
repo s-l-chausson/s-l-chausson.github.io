@@ -2,6 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+interface AllergenConfig {
+  weights: Record<string, number>;
+  season:  Record<string, number[]>; // 12 monthly factors per species
+}
+
 // ── Colour ramp (YlOrRd sequential) ──────────────────────────────────────────
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 const STOPS: [number, [number, number, number]][] = [
@@ -28,22 +34,56 @@ function colorRamp(t: number): [number, number, number] {
   return STOPS[STOPS.length - 1][1];
 }
 
-function paintCanvas(
-  canvas: HTMLCanvasElement,
-  data: Float32Array,
-  ncols: number,
-  nrows: number,
-) {
-  // Collect finite (land) values for p05–p95 stretch
-  const valid: number[] = [];
-  for (let i = 0; i < data.length; i++) {
-    if (isFinite(data[i])) valid.push(data[i]);
+// ── Composite computation ─────────────────────────────────────────────────────
+/**
+ * For a given month (0–11), compute the weighted composite across all loaded
+ * species layers:
+ *   composite[pixel] = Σ_s  weight_s × season_s[month] × z_s[pixel]
+ *
+ * Sea/outside-GB pixels (NaN in every layer) remain NaN in the output.
+ */
+function computeComposite(
+  month:     number,
+  layers:    Record<string, Float32Array>,
+  weights:   Record<string, number>,
+  season:    Record<string, number[]>,
+  nPixels:   number,
+): Float32Array {
+  const out = new Float32Array(nPixels);
+  for (let i = 0; i < nPixels; i++) {
+    let sum  = 0;
+    let land = false;
+    for (const [species, layer] of Object.entries(layers)) {
+      if (!isFinite(layer[i])) continue; // sea pixel for this layer
+      land = true;
+      const w  = weights[species] ?? 0;
+      const sf = season[species]?.[month] ?? 1;
+      sum += w * sf * layer[i];
+    }
+    out[i] = land ? sum : NaN;
   }
-  valid.sort((a, b) => a - b);
-  const lo    = valid[Math.floor(valid.length * 0.05)] ?? 0;
-  const hi    = valid[Math.floor(valid.length * 0.95)] ?? 1;
-  const range = Math.max(hi - lo, 1e-6);
+  return out;
+}
 
+// The colour scale is always [0, 1] because every species layer is already
+// normalised to [0, 1] in R (p2–p98 min-max, clamped).  A composite value of
+// 0 therefore means "no exposure this month" (season factor = 0 or truly
+// zero-exposure area) and always maps to the pale end of the ramp.
+
+// ── Canvas painter ────────────────────────────────────────────────────────────
+/**
+ * Paint composite values onto a canvas using a pre-determined [lo, hi] scale.
+ * lo/hi are fixed across months so the colour meaning is consistent.
+ */
+function paintCanvas(
+  canvas:  HTMLCanvasElement,
+  data:    Float32Array,
+  ncols:   number,
+  nrows:   number,
+  lo:      number,
+  hi:      number,
+) {
+  const range = Math.max(hi - lo, 1e-6);
   canvas.width  = ncols;
   canvas.height = nrows;
   const ctx = canvas.getContext('2d')!;
@@ -72,22 +112,24 @@ const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
-const MONTH_KEYS = [
-  'january', 'february', 'march', 'april', 'may', 'june',
-  'july', 'august', 'september', 'october', 'november', 'december',
-];
+
+// Temporary test weights: birch = 1, everything else = 0
+// (Will be replaced by user-controlled sliders later)
+const TEST_WEIGHTS: Record<string, number> = { birch: 1 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function AllergenMap() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const canvasRef    = useRef<HTMLCanvasElement | null>(null);
-  const monthDataRef = useRef<(Float32Array | null)[]>(Array(12).fill(null));
-  const gridRef      = useRef<{ ncols: number; nrows: number } | null>(null);
+  const containerRef   = useRef<HTMLDivElement>(null);
+  const canvasRef      = useRef<HTMLCanvasElement | null>(null);
+  // Pre-computed composite for each of the 12 months
+  const compositesRef  = useRef<Float32Array[]>([]);
+  // Colour scale is always [0, 1] — no runtime computation needed.
+  const gridRef        = useRef<{ ncols: number; nrows: number } | null>(null);
 
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [month, setMonth]   = useState(() => new Date().getMonth());
 
-  // ── Effect 1: initialise map and load all monthly data ────────────────────
+  // ── Effect 1: initialise map, load species layers, build composites ────────
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -105,34 +147,51 @@ export default function AllergenMap() {
 
     map.on('load', async () => {
       try {
-        const meta = await fetch('/data/layers_meta.json').then(r => r.json());
-        const { ncols, nrows, west, east, south, north } = meta.month_january;
-        gridRef.current = { ncols, nrows };
+        // ── 1. Load metadata + config ───────────────────────────────────────
+        const [meta, config]: [Record<string, { ncols: number; nrows: number; west: number; east: number; south: number; north: number }>, AllergenConfig] =
+          await Promise.all([
+            fetch('/data/layers_meta.json').then(r => r.json()),
+            fetch('/data/allergen_config.json').then(r => r.json()),
+          ]);
 
-        // Fetch all 12 monthly composites in parallel
+        // ── 2. Determine which species to load ─────────────────────────────
+        // Only load files for species that have a non-zero weight.
+        // Right now that's just birch (TEST_WEIGHTS = { birch: 1 }).
+        const speciesToLoad = Object.keys(TEST_WEIGHTS).filter(s => TEST_WEIGHTS[s] !== 0);
+
+        const { ncols, nrows, west, east, south, north } = meta[speciesToLoad[0]];
+        gridRef.current = { ncols, nrows };
+        const nPixels = ncols * nrows;
+
+        // ── 3. Fetch species layers in parallel ────────────────────────────
         const buffers = await Promise.all(
-          MONTH_KEYS.map(k =>
-            fetch(`/data/month_${k}.bin`).then(r => r.arrayBuffer()),
-          ),
+          speciesToLoad.map(s => fetch(`/data/${s}.bin`).then(r => r.arrayBuffer())),
         );
         if (cancelled) return;
 
-        buffers.forEach((buf, i) => {
-          monthDataRef.current[i] = new Float32Array(buf);
+        const layers: Record<string, Float32Array> = {};
+        speciesToLoad.forEach((s, i) => {
+          layers[s] = new Float32Array(buffers[i]);
         });
 
-        // Paint initial month
+        // ── 4. Compute composite for all 12 months ─────────────────────────
+        const composites = Array.from({ length: 12 }, (_, m) =>
+          computeComposite(m, layers, TEST_WEIGHTS, config.season, nPixels),
+        );
+        compositesRef.current = composites;
+
+        // ── 5. Paint the initial month onto a canvas ───────────────────────
         const initialMonth = new Date().getMonth();
         const canvas = document.createElement('canvas');
         canvasRef.current = canvas;
-        paintCanvas(canvas, monthDataRef.current[initialMonth]!, ncols, nrows);
+        paintCanvas(canvas, composites[initialMonth], ncols, nrows, 0, 1);
 
-        // animate:true so MapLibre re-reads the canvas when we repaint it
+        // ── 7. Add canvas source + raster layer ───────────────────────────
         map.addSource('overlay', {
           type: 'canvas',
           canvas,
           coordinates: [[west, north], [east, north], [east, south], [west, south]],
-          animate: true,
+          animate: true, // lets MapLibre pick up canvas repaints automatically
         } as unknown as maplibregl.CanvasSourceSpecification);
 
         map.addLayer({
@@ -155,13 +214,13 @@ export default function AllergenMap() {
     };
   }, []);
 
-  // ── Effect 2: repaint canvas whenever month changes ───────────────────────
+  // ── Effect 2: repaint when month changes ──────────────────────────────────
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const grid   = gridRef.current;
-    const data   = monthDataRef.current[month];
-    if (!canvas || !grid || !data) return; // map not ready yet — no-op
-    paintCanvas(canvas, data, grid.ncols, grid.nrows);
+    const canvas     = canvasRef.current;
+    const grid       = gridRef.current;
+    const composites = compositesRef.current;
+    if (!canvas || !grid || composites.length === 0) return;
+    paintCanvas(canvas, composites[month], grid.ncols, grid.nrows, 0, 1);
   }, [month]);
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -169,7 +228,6 @@ export default function AllergenMap() {
     <div style={{ position: 'relative', width: '100%', height: '600px' }}>
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
-      {/* Loading spinner */}
       {status === 'loading' && (
         <div style={{
           position: 'absolute', inset: 0, display: 'flex',
@@ -180,7 +238,6 @@ export default function AllergenMap() {
         </div>
       )}
 
-      {/* Error message */}
       {status === 'error' && (
         <div style={{
           position: 'absolute', inset: 0, display: 'flex',
@@ -193,7 +250,6 @@ export default function AllergenMap() {
         </div>
       )}
 
-      {/* Controls (visible once data is ready) */}
       {status === 'ready' && (
         <>
           {/* Month slider — centred at bottom */}
@@ -213,9 +269,7 @@ export default function AllergenMap() {
             </p>
             <input
               type="range"
-              min={0}
-              max={11}
-              step={1}
+              min={0} max={11} step={1}
               value={month}
               onChange={e => setMonth(Number(e.target.value))}
               style={{ width: '100%', accentColor: '#e31a1c', cursor: 'pointer' }}
@@ -229,9 +283,7 @@ export default function AllergenMap() {
           </div>
 
           {/* Legend — bottom-left */}
-          <div style={{
-            position: 'absolute', bottom: 120, left: 12, zIndex: 10,
-          }}
+          <div style={{ position: 'absolute', bottom: 120, left: 12, zIndex: 10 }}
                className="bg-white/90 rounded px-2.5 py-2 shadow text-xs text-stone-600">
             <p className="font-medium mb-1">Composite allergen risk</p>
             <div className="flex items-center gap-1.5">
@@ -240,7 +292,9 @@ export default function AllergenMap() {
                    style={{ background: 'linear-gradient(to right, #ffffcc, #fed152, #fd8d3c, #e31a1c, #800026)' }} />
               <span className="text-stone-400">High</span>
             </div>
-            <p className="text-stone-400 mt-0.5 text-[10px]">relative to GB p5–p95</p>
+            <p className="text-stone-400 mt-0.5 text-[10px]">
+              0 = no exposure · 1 = maximum · fixed scale
+            </p>
           </div>
         </>
       )}
