@@ -9,27 +9,26 @@ interface AllergenConfig {
 }
 
 // ── Species available for weight customisation ────────────────────────────────
-// key       — used in allergen_config.json (season profiles, weights)
-// label     — display name in the UI
-// fileKey   — .bin filename when it differs from key (grass → grassland.bin)
+// key           — must match both the .bin filename and allergen_config.json
+// label         — display name in the UI
 // defaultWeight — from the McInnes et al. methodology (allergen_config.json)
 const SPECIES_CONFIG: {
-  key: string; label: string; fileKey?: string; defaultWeight: number;
+  key: string; label: string; defaultWeight: number;
 }[] = [
   // ── Pollen allergens ──────────────────────────────────────
-  { key: 'grass',    label: 'Grass',     fileKey: 'grassland', defaultWeight: 0.9  },
-  { key: 'birch',    label: 'Birch',                           defaultWeight: 0.55 },
-  { key: 'hazel',    label: 'Hazel',                           defaultWeight: 0.5  },
-  { key: 'alder',    label: 'Alder',                           defaultWeight: 0.45 },
-  { key: 'oak',      label: 'Oak',                             defaultWeight: 0.3  },
-  { key: 'ash',      label: 'Ash',                             defaultWeight: 0.25 },
-  { key: 'mugwort',  label: 'Mugwort',                         defaultWeight: 0.15 },
-  { key: 'plane',    label: 'Plane',                           defaultWeight: 0.15 },
-  { key: 'plantain', label: 'Plantain',                        defaultWeight: 0.12 },
-  { key: 'nettle',   label: 'Nettle',                          defaultWeight: 0.1  },
+  { key: 'grass',    label: 'Grass',    defaultWeight: 0.9  },
+  { key: 'birch',    label: 'Birch',    defaultWeight: 0.55 },
+  { key: 'hazel',    label: 'Hazel',    defaultWeight: 0.5  },
+  { key: 'alder',    label: 'Alder',    defaultWeight: 0.45 },
+  { key: 'oak',      label: 'Oak',      defaultWeight: 0.3  },
+  { key: 'ash',      label: 'Ash',      defaultWeight: 0.25 },
+  { key: 'mugwort',  label: 'Mugwort',  defaultWeight: 0.15 },
+  { key: 'plane',    label: 'Plane',    defaultWeight: 0.15 },
+  { key: 'plantain', label: 'Plantain', defaultWeight: 0.12 },
+  { key: 'nettle',   label: 'Nettle',   defaultWeight: 0.1  },
   // ── Air pollutants ────────────────────────────────────────
-  { key: 'no2',      label: 'NO₂',                             defaultWeight: 0.15 },
-  { key: 'pm25',     label: 'PM₂.₅',                          defaultWeight: 0.15 },
+  { key: 'no2',      label: 'NO₂',      defaultWeight: 0.15 },
+  { key: 'pm25',     label: 'PM₂.₅',   defaultWeight: 0.15 },
 ];
 
 // ── Colour ramp (YlOrRd sequential) ──────────────────────────────────────────
@@ -241,22 +240,19 @@ export default function AllergenMap() {
         ]);
 
         const keys = SPECIES_CONFIG.map(s => s.key);
-        const firstMetaKey = SPECIES_CONFIG[0].fileKey ?? SPECIES_CONFIG[0].key;
-        const { ncols, nrows, west, east, south, north } = meta[firstMetaKey];
+        const { ncols, nrows, west, east, south, north } = meta[keys[0]];
         gridRef.current  = { ncols, nrows, west, east, south, north };
         nPixelsRef.current = ncols * nrows;
         seasonRef.current  = config.season;
 
-        // Fetch all species in parallel (fileKey overrides key for the filename)
+        // Fetch all species in parallel
         const buffers = await Promise.all(
-          SPECIES_CONFIG.map(({ key, fileKey }) =>
-            fetch(`/data/${fileKey ?? key}.bin`).then(r => r.arrayBuffer()),
-          ),
+          keys.map(k => fetch(`/data/${k}.bin`).then(r => r.arrayBuffer())),
         );
         if (cancelled) return;
 
-        SPECIES_CONFIG.forEach(({ key }, i) => {
-          layersRef.current[key] = new Float32Array(buffers[i]);
+        keys.forEach((k, i) => {
+          layersRef.current[k] = new Float32Array(buffers[i]);
         });
 
         // Initial weights from SPECIES_CONFIG defaultWeight values

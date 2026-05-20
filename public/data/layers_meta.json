@@ -39,7 +39,7 @@
     "south": 49.772,
     "north": 61.5814
   },
-  "grassland": {
+  "grass": {
     "ncols": 591,
     "nrows": 531,
     "west": -9.4964,
