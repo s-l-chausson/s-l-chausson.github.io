@@ -34,14 +34,20 @@ const SPECIES_CONFIG: {
 
 const DEFAULT_K = 0.3; // pollution amplification factor
 
-// ── Colour ramp (YlOrRd sequential) ──────────────────────────────────────────
+// ── Colour ramp (magma reversed: pale yellow → black/dark purple) ─────────────
+// Stops sampled from matplotlib's magma_r at uniform intervals.
+// t=0 (no exposure) → pale yellow; t=1 (max exposure) → near-black.
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 const STOPS: [number, [number, number, number]][] = [
-  [0.0,  [255, 255, 204]],
-  [0.25, [254, 217,  82]],
-  [0.5,  [253, 141,  60]],
-  [0.75, [227,  26,  28]],
-  [1.0,  [128,   0,  38]],
+  [0.000, [252, 253, 191]],  // pale yellow
+  [0.125, [255, 232, 168]],  // light cream-orange
+  [0.250, [252, 182,  98]],  // warm orange
+  [0.375, [243, 118,  74]],  // orange-red
+  [0.500, [208,  75, 109]],  // pink-red
+  [0.625, [163,  47, 127]],  // magenta-purple
+  [0.750, [ 81,  18, 124]],  // dark purple
+  [0.875, [ 29,  17,  71]],  // very dark purple
+  [1.000, [  0,   0,   4]],  // near black
 ];
 function colorRamp(t: number): [number, number, number] {
   t = Math.max(0, Math.min(1, t));
@@ -384,7 +390,7 @@ export default function AllergenMap() {
           <div className="flex items-center gap-1.5">
             <span className="text-stone-400">Low</span>
             <div className="w-24 h-2.5 rounded"
-                 style={{ background: 'linear-gradient(to right, #ffffcc, #fed152, #fd8d3c, #e31a1c, #800026)' }} />
+                 style={{ background: 'linear-gradient(to right, #fcfdbf, #fcb661, #f04f6e, #812a8c, #000004)' }} />
             <span className="text-stone-400">High</span>
           </div>
         </div>
