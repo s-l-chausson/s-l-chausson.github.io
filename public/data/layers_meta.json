@@ -23,7 +23,47 @@
     "south": 49.772,
     "north": 61.5814
   },
+  "oak": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "ash": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
   "grassland": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "mugwort": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "plantain": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "nettle": {
     "ncols": 591,
     "nrows": 531,
     "west": -9.4964,
@@ -48,6 +88,102 @@
     "north": 61.5814
   },
   "pm25": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "month_january": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "month_february": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "month_march": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "month_april": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "month_may": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "month_june": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "month_july": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "month_august": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "month_september": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "month_october": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "month_november": {
+    "ncols": 591,
+    "nrows": 531,
+    "west": -9.4964,
+    "east": 3.6474,
+    "south": 49.772,
+    "north": 61.5814
+  },
+  "month_december": {
     "ncols": 591,
     "nrows": 531,
     "west": -9.4964,
