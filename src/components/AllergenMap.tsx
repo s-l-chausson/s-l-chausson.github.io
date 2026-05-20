@@ -5,8 +5,17 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface AllergenConfig {
   weights: Record<string, number>;
-  season:  Record<string, number[]>; // 12 monthly factors per species
+  season:  Record<string, number[]>;
 }
+
+// ── Species available for weight customisation ────────────────────────────────
+// Extend this list to expose more allergens in the UI; the corresponding
+// .bin files will be fetched on first load.
+const SPECIES_CONFIG: { key: string; label: string }[] = [
+  { key: 'birch', label: 'Birch' },
+  { key: 'pm25',  label: 'PM₂.₅' },
+];
+const DEFAULT_WEIGHT = '1';
 
 // ── Colour ramp (YlOrRd sequential) ──────────────────────────────────────────
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
@@ -35,74 +44,67 @@ function colorRamp(t: number): [number, number, number] {
 }
 
 // ── Composite computation ─────────────────────────────────────────────────────
-/**
- * For a given month (0–11), compute the weighted composite across all loaded
- * species layers:
- *   composite[pixel] = Σ_s  weight_s × season_s[month] × z_s[pixel]
- *
- * Sea/outside-GB pixels (NaN in every layer) remain NaN in the output.
- */
 function computeComposite(
-  month:     number,
-  layers:    Record<string, Float32Array>,
-  weights:   Record<string, number>,
-  season:    Record<string, number[]>,
-  nPixels:   number,
+  month:   number,
+  layers:  Record<string, Float32Array>,
+  weights: Record<string, number>,
+  season:  Record<string, number[]>,
+  nPixels: number,
 ): Float32Array {
   const out = new Float32Array(nPixels);
   for (let i = 0; i < nPixels; i++) {
     let sum  = 0;
     let land = false;
     for (const [species, layer] of Object.entries(layers)) {
-      if (!isFinite(layer[i])) continue; // sea pixel for this layer
+      if (!isFinite(layer[i])) continue;
       land = true;
-      const w  = weights[species] ?? 0;
-      const sf = season[species]?.[month] ?? 1;
-      sum += w * sf * layer[i];
+      sum += (weights[species] ?? 0) * (season[species]?.[month] ?? 1) * layer[i];
     }
     out[i] = land ? sum : NaN;
   }
   return out;
 }
 
-// The colour scale is always [0, 1] because every species layer is already
-// normalised to [0, 1] in R (p2–p98 min-max, clamped).  A composite value of
-// 0 therefore means "no exposure this month" (season factor = 0 or truly
-// zero-exposure area) and always maps to the pale end of the ramp.
+// ── Colour scale upper bound ──────────────────────────────────────────────────
+// hi = Σ_s weight_s × max(season_s)  — the theoretical maximum composite.
+// lo is always 0 (off-season / zero exposure → pale end of ramp).
+function computeScaleHi(
+  weights: Record<string, number>,
+  season:  Record<string, number[]>,
+): number {
+  return Math.max(
+    Object.entries(weights).reduce((sum, [s, w]) => {
+      const maxSf = Math.max(...(season[s] ?? [1]));
+      return sum + w * maxSf;
+    }, 0),
+    1e-6,
+  );
+}
 
-// ── Canvas painter ────────────────────────────────────────────────────────────
-/**
- * Paint composite values onto a canvas with Mercator-corrected row sampling.
- *
- * Our source data is linearly spaced in WGS84 latitude, but MapLibre renders
- * canvas sources with linear interpolation in Web Mercator y.  These two
- * conventions diverge — at UK latitudes the northern Mercator scale factor
- * (~2.1) is ~37 % larger than the southern one (~1.54) — causing content to
- * appear shifted ~35–40 km northward when painted naively.
- *
- * Fix: for each output canvas row r (which MapLibre will place at a specific
- * Mercator y), compute the WGS84 latitude that Mercator y corresponds to, then
- * sample the source data at that latitude.  This makes the canvas Mercator-
- * compatible so that MapLibre's linear rendering gives geographic accuracy.
- */
+// ── Canvas painter (Mercator-corrected) ───────────────────────────────────────
+// Source data is linearly spaced in WGS84 latitude; MapLibre renders canvas
+// sources with linear interpolation in Web Mercator y.  At UK latitudes this
+// causes ~35–40 km northward displacement without correction.
+// Fix: for each canvas row r, invert the Mercator formula to find the WGS84
+// latitude that MapLibre will place that row at, then sample source data there.
 function paintCanvas(
-  canvas:  HTMLCanvasElement,
-  data:    Float32Array,
-  ncols:   number,
-  nrows:   number,
-  lo:      number,
-  hi:      number,
-  west:    number,
-  east:    number,
-  south:   number,
-  north:   number,
+  canvas: HTMLCanvasElement,
+  data:   Float32Array,
+  ncols:  number,
+  nrows:  number,
+  lo:     number,
+  hi:     number,
+  west:   number,
+  east:   number,
+  south:  number,
+  north:  number,
 ) {
-  const R     = 6_378_137;          // WGS84 semi-major axis (m)
+  const R     = 6_378_137;
   const toRad = Math.PI / 180;
   const yN    = R * Math.log(Math.tan(Math.PI / 4 + north * toRad / 2));
   const yS    = R * Math.log(Math.tan(Math.PI / 4 + south * toRad / 2));
-
   const range = Math.max(hi - lo, 1e-6);
+
   canvas.width  = ncols;
   canvas.height = nrows;
   const ctx = canvas.getContext('2d')!;
@@ -110,22 +112,16 @@ function paintCanvas(
   const d   = img.data;
 
   for (let row = 0; row < nrows; row++) {
-    // Mercator y for this canvas row (linearly distributed in Mercator)
-    const yMerc = yN - (row / nrows) * (yN - yS);
-    // WGS84 latitude for that Mercator y
-    const lat   = (2 * Math.atan(Math.exp(yMerc / R)) - Math.PI / 2) / toRad;
-    // Corresponding source row (data is linearly spaced in WGS84 degrees)
+    const yMerc  = yN - (row / nrows) * (yN - yS);
+    const lat    = (2 * Math.atan(Math.exp(yMerc / R)) - Math.PI / 2) / toRad;
     const srcRow = Math.round((north - lat) / (north - south) * nrows);
 
     for (let col = 0; col < ncols; col++) {
       const base = (row * ncols + col) * 4;
-      if (srcRow < 0 || srcRow >= nrows) {
-        d[base + 3] = 0;
-        continue;
-      }
+      if (srcRow < 0 || srcRow >= nrows) { d[base + 3] = 0; continue; }
       const v = data[srcRow * ncols + col];
       if (!isFinite(v)) {
-        d[base + 3] = 0; // transparent — sea / outside GB
+        d[base + 3] = 0;
       } else {
         const t       = (v - lo) / range;
         const [r,g,b] = colorRamp(t);
@@ -139,30 +135,71 @@ function paintCanvas(
   ctx.putImageData(img, 0, 0);
 }
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// ── Month names ───────────────────────────────────────────────────────────────
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-// Temporary test weights — will be replaced by user-controlled sliders later.
-const TEST_WEIGHTS: Record<string, number> = { birch: 1, pm25: 1 };
-
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function AllergenMap() {
-  const containerRef   = useRef<HTMLDivElement>(null);
-  const canvasRef      = useRef<HTMLCanvasElement | null>(null);
-  // Pre-computed composite for each of the 12 months
-  const compositesRef  = useRef<Float32Array[]>([]);
-  // Upper bound of colour scale: Σ weight_s × max(season_s), computed once
-  // after weights are known. lo is always 0 (no exposure = no colour).
-  const scaleHiRef     = useRef<number>(1);
-  const gridRef        = useRef<{ ncols: number; nrows: number; west: number; east: number; south: number; north: number } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef    = useRef<HTMLCanvasElement | null>(null);
 
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [month, setMonth]   = useState(() => new Date().getMonth());
+  // Persisted across renders — set once on load, read in handleGenerate
+  const layersRef    = useRef<Record<string, Float32Array>>({});
+  const seasonRef    = useRef<Record<string, number[]>>({});
+  const nPixelsRef   = useRef<number>(0);
+  const gridRef      = useRef<{
+    ncols: number; nrows: number;
+    west: number; east: number; south: number; north: number;
+  } | null>(null);
 
-  // ── Effect 1: initialise map, load species layers, build composites ────────
+  // Derived from current weights — updated by handleGenerate
+  const compositesRef = useRef<Float32Array[]>([]);
+  const scaleHiRef    = useRef<number>(1);
+
+  const [status, setStatus]           = useState<'loading' | 'ready' | 'error'>('loading');
+  const [month, setMonth]             = useState(() => new Date().getMonth());
+  // String values so the <input> is fully controlled while the user types
+  const [weightInputs, setWeightInputs] = useState<Record<string, string>>(
+    () => Object.fromEntries(SPECIES_CONFIG.map(({ key }) => [key, DEFAULT_WEIGHT])),
+  );
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function repaint(m: number) {
+    const canvas = canvasRef.current;
+    const grid   = gridRef.current;
+    if (!canvas || !grid || compositesRef.current.length === 0) return;
+    const { ncols, nrows, west, east, south, north } = grid;
+    paintCanvas(
+      canvas, compositesRef.current[m],
+      ncols, nrows, 0, scaleHiRef.current,
+      west, east, south, north,
+    );
+  }
+
+  function rebuildComposites(weights: Record<string, number>) {
+    const n = nPixelsRef.current;
+    if (n === 0) return;
+    compositesRef.current = Array.from({ length: 12 }, (_, m) =>
+      computeComposite(m, layersRef.current, weights, seasonRef.current, n),
+    );
+    scaleHiRef.current = computeScaleHi(weights, seasonRef.current);
+  }
+
+  // ── Generate handler ──────────────────────────────────────────────────────
+  function handleGenerate() {
+    const weights: Record<string, number> = {};
+    for (const { key } of SPECIES_CONFIG) {
+      const v = parseFloat(weightInputs[key]);
+      weights[key] = isFinite(v) && v >= 0 ? v : 0;
+    }
+    rebuildComposites(weights);
+    repaint(month);
+  }
+
+  // ── Effect 1: initialise map + load all species layers ────────────────────
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -180,67 +217,50 @@ export default function AllergenMap() {
 
     map.on('load', async () => {
       try {
-        // ── 1. Load metadata + config ───────────────────────────────────────
-        const [meta, config]: [Record<string, { ncols: number; nrows: number; west: number; east: number; south: number; north: number }>, AllergenConfig] =
-          await Promise.all([
-            fetch('/data/layers_meta.json').then(r => r.json()),
-            fetch('/data/allergen_config.json').then(r => r.json()),
-          ]);
+        const [meta, config]: [
+          Record<string, { ncols: number; nrows: number; west: number; east: number; south: number; north: number }>,
+          AllergenConfig,
+        ] = await Promise.all([
+          fetch('/data/layers_meta.json').then(r => r.json()),
+          fetch('/data/allergen_config.json').then(r => r.json()),
+        ]);
 
-        // ── 2. Determine which species to load ─────────────────────────────
-        // Only load files for species that have a non-zero weight.
-        // Right now that's just birch (TEST_WEIGHTS = { birch: 1 }).
-        const speciesToLoad = Object.keys(TEST_WEIGHTS).filter(s => TEST_WEIGHTS[s] !== 0);
+        const keys = SPECIES_CONFIG.map(s => s.key);
+        const { ncols, nrows, west, east, south, north } = meta[keys[0]];
+        gridRef.current  = { ncols, nrows, west, east, south, north };
+        nPixelsRef.current = ncols * nrows;
+        seasonRef.current  = config.season;
 
-        const { ncols, nrows, west, east, south, north } = meta[speciesToLoad[0]];
-        gridRef.current = { ncols, nrows, west, east, south, north };
-        const nPixels = ncols * nrows;
-
-        // ── 3. Fetch species layers in parallel ────────────────────────────
+        // Fetch all species in parallel
         const buffers = await Promise.all(
-          speciesToLoad.map(s => fetch(`/data/${s}.bin`).then(r => r.arrayBuffer())),
+          keys.map(k => fetch(`/data/${k}.bin`).then(r => r.arrayBuffer())),
         );
         if (cancelled) return;
 
-        const layers: Record<string, Float32Array> = {};
-        speciesToLoad.forEach((s, i) => {
-          layers[s] = new Float32Array(buffers[i]);
-        });
+        keys.forEach((k, i) => { layersRef.current[k] = new Float32Array(buffers[i]); });
 
-        // ── 4. Compute composite for all 12 months ─────────────────────────
-        const composites = Array.from({ length: 12 }, (_, m) =>
-          computeComposite(m, layers, TEST_WEIGHTS, config.season, nPixels),
-        );
-        compositesRef.current = composites;
+        // Initial weights: all DEFAULT_WEIGHT
+        const initWeights = Object.fromEntries(keys.map(k => [k, parseFloat(DEFAULT_WEIGHT)]));
+        rebuildComposites(initWeights);
 
-        // ── 5. Derive colour scale upper bound ─────────────────────────────
-        // hi = Σ_s weight_s × max(season_s[0..11])
-        // This is the theoretical maximum composite value (all species at
-        // peak season, all pixels at normalised value 1). lo is always 0.
-        const hi = speciesToLoad.reduce((sum, s) => {
-          const maxSeason = Math.max(...(config.season[s] ?? [1]));
-          return sum + (TEST_WEIGHTS[s] ?? 0) * maxSeason;
-        }, 0);
-        scaleHiRef.current = Math.max(hi, 1e-6);
-
-        // ── 6. Paint the initial month onto a canvas ───────────────────────
-        const initialMonth = new Date().getMonth();
+        // Create canvas + add MapLibre source
         const canvas = document.createElement('canvas');
         canvasRef.current = canvas;
-        paintCanvas(canvas, composites[initialMonth], ncols, nrows, 0, scaleHiRef.current, west, east, south, north);
+        const initMonth = new Date().getMonth();
+        paintCanvas(
+          canvas, compositesRef.current[initMonth],
+          ncols, nrows, 0, scaleHiRef.current,
+          west, east, south, north,
+        );
 
-        // ── 7. Add canvas source + raster layer ───────────────────────────
         map.addSource('overlay', {
-          type: 'canvas',
-          canvas,
+          type: 'canvas', canvas,
           coordinates: [[west, north], [east, north], [east, south], [west, south]],
-          animate: true, // lets MapLibre pick up canvas repaints automatically
+          animate: true,
         } as unknown as maplibregl.CanvasSourceSpecification);
 
         map.addLayer({
-          id: 'overlay-layer',
-          type: 'raster',
-          source: 'overlay',
+          id: 'overlay-layer', type: 'raster', source: 'overlay',
           paint: { 'raster-opacity': 0.75, 'raster-fade-duration': 0 },
         });
 
@@ -251,27 +271,18 @@ export default function AllergenMap() {
       }
     });
 
-    return () => {
-      cancelled = true;
-      map.remove();
-    };
+    return () => { cancelled = true; map.remove(); };
   }, []);
 
-  // ── Effect 2: repaint when month changes ──────────────────────────────────
-  useEffect(() => {
-    const canvas     = canvasRef.current;
-    const grid       = gridRef.current;
-    const composites = compositesRef.current;
-    if (!canvas || !grid || composites.length === 0) return;
-    const { ncols, nrows, west, east, south, north } = grid;
-    paintCanvas(canvas, composites[month], ncols, nrows, 0, scaleHiRef.current, west, east, south, north);
-  }, [month]);
+  // ── Effect 2: repaint when month slider moves ─────────────────────────────
+  useEffect(() => { repaint(month); }, [month]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ position: 'relative', width: '100%', height: '600px' }}>
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
+      {/* Loading */}
       {status === 'loading' && (
         <div style={{
           position: 'absolute', inset: 0, display: 'flex',
@@ -282,21 +293,71 @@ export default function AllergenMap() {
         </div>
       )}
 
+      {/* Error */}
       {status === 'error' && (
         <div style={{
           position: 'absolute', inset: 0, display: 'flex',
           alignItems: 'center', justifyContent: 'center',
           background: 'rgba(250,250,249,0.85)', zIndex: 10,
         }}>
-          <p className="text-sm text-red-500 px-6 text-center">
-            Failed to load allergen data.
-          </p>
+          <p className="text-sm text-red-500 px-6 text-center">Failed to load allergen data.</p>
         </div>
       )}
 
       {status === 'ready' && (
         <>
-          {/* Month slider — centred at bottom */}
+          {/* ── Weights panel — top-left ── */}
+          <div style={{
+            position: 'absolute', top: 12, left: 12, zIndex: 10,
+            background: 'rgba(255,255,255,0.95)',
+            borderRadius: 10, padding: '12px 14px',
+            boxShadow: '0 1px 6px rgba(0,0,0,0.14)',
+            minWidth: 180,
+          }}>
+            <p style={{ fontSize: 12, fontWeight: 700, color: '#44403c', margin: '0 0 10px' }}>
+              Allergen weights
+            </p>
+
+            {SPECIES_CONFIG.map(({ key, label }) => (
+              <div key={key} style={{
+                display: 'flex', alignItems: 'center',
+                justifyContent: 'space-between', marginBottom: 7, gap: 10,
+              }}>
+                <label style={{ fontSize: 12, color: '#57534e', whiteSpace: 'nowrap' }}>
+                  {label}
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={weightInputs[key]}
+                  onChange={e =>
+                    setWeightInputs(prev => ({ ...prev, [key]: e.target.value }))
+                  }
+                  style={{
+                    width: 60, fontSize: 12, padding: '3px 6px',
+                    border: '1px solid #d6d3d1', borderRadius: 5,
+                    textAlign: 'right', outline: 'none',
+                    color: '#1c1917', background: '#fafaf9',
+                  }}
+                />
+              </div>
+            ))}
+
+            <button
+              onClick={handleGenerate}
+              style={{
+                marginTop: 4, width: '100%', padding: '5px 0',
+                fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                background: '#e31a1c', color: '#fff',
+                border: 'none', borderRadius: 6,
+              }}
+            >
+              Generate
+            </button>
+          </div>
+
+          {/* ── Month slider — centred at bottom ── */}
           <div style={{
             position: 'absolute', bottom: 36, left: '50%',
             transform: 'translateX(-50%)', zIndex: 10,
@@ -305,15 +366,11 @@ export default function AllergenMap() {
             boxShadow: '0 1px 6px rgba(0,0,0,0.14)',
             minWidth: 230, textAlign: 'center',
           }}>
-            <p style={{
-              fontSize: 13, fontWeight: 600, color: '#44403c',
-              marginBottom: 6, marginTop: 0,
-            }}>
+            <p style={{ fontSize: 13, fontWeight: 600, color: '#44403c', margin: '0 0 6px' }}>
               {MONTH_NAMES[month]}
             </p>
             <input
-              type="range"
-              min={0} max={11} step={1}
+              type="range" min={0} max={11} step={1}
               value={month}
               onChange={e => setMonth(Number(e.target.value))}
               style={{ width: '100%', accentColor: '#e31a1c', cursor: 'pointer' }}
@@ -326,7 +383,7 @@ export default function AllergenMap() {
             </div>
           </div>
 
-          {/* Legend — bottom-left */}
+          {/* ── Legend — bottom-left ── */}
           <div style={{ position: 'absolute', bottom: 120, left: 12, zIndex: 10 }}
                className="bg-white/90 rounded px-2.5 py-2 shadow text-xs text-stone-600">
             <p className="font-medium mb-1">Composite allergen risk</p>
@@ -336,9 +393,7 @@ export default function AllergenMap() {
                    style={{ background: 'linear-gradient(to right, #ffffcc, #fed152, #fd8d3c, #e31a1c, #800026)' }} />
               <span className="text-stone-400">High</span>
             </div>
-            <p className="text-stone-400 mt-0.5 text-[10px]">
-              0 = no exposure · 1 = maximum · fixed scale
-            </p>
+            <p className="text-stone-400 mt-0.5 text-[10px]">0 = no exposure · scale fixed per weights</p>
           </div>
         </>
       )}
