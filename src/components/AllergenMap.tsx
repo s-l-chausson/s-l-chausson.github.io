@@ -145,9 +145,8 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-// Temporary test weights: birch = 1, everything else = 0
-// (Will be replaced by user-controlled sliders later)
-const TEST_WEIGHTS: Record<string, number> = { birch: 1 };
+// Temporary test weights — will be replaced by user-controlled sliders later.
+const TEST_WEIGHTS: Record<string, number> = { birch: 1, pm25: 1 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function AllergenMap() {
@@ -155,7 +154,9 @@ export default function AllergenMap() {
   const canvasRef      = useRef<HTMLCanvasElement | null>(null);
   // Pre-computed composite for each of the 12 months
   const compositesRef  = useRef<Float32Array[]>([]);
-  // Colour scale is always [0, 1] — no runtime computation needed.
+  // Upper bound of colour scale: Σ weight_s × max(season_s), computed once
+  // after weights are known. lo is always 0 (no exposure = no colour).
+  const scaleHiRef     = useRef<number>(1);
   const gridRef        = useRef<{ ncols: number; nrows: number; west: number; east: number; south: number; north: number } | null>(null);
 
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -212,11 +213,21 @@ export default function AllergenMap() {
         );
         compositesRef.current = composites;
 
-        // ── 5. Paint the initial month onto a canvas ───────────────────────
+        // ── 5. Derive colour scale upper bound ─────────────────────────────
+        // hi = Σ_s weight_s × max(season_s[0..11])
+        // This is the theoretical maximum composite value (all species at
+        // peak season, all pixels at normalised value 1). lo is always 0.
+        const hi = speciesToLoad.reduce((sum, s) => {
+          const maxSeason = Math.max(...(config.season[s] ?? [1]));
+          return sum + (TEST_WEIGHTS[s] ?? 0) * maxSeason;
+        }, 0);
+        scaleHiRef.current = Math.max(hi, 1e-6);
+
+        // ── 6. Paint the initial month onto a canvas ───────────────────────
         const initialMonth = new Date().getMonth();
         const canvas = document.createElement('canvas');
         canvasRef.current = canvas;
-        paintCanvas(canvas, composites[initialMonth], ncols, nrows, 0, 1, west, east, south, north);
+        paintCanvas(canvas, composites[initialMonth], ncols, nrows, 0, scaleHiRef.current, west, east, south, north);
 
         // ── 7. Add canvas source + raster layer ───────────────────────────
         map.addSource('overlay', {
@@ -253,7 +264,7 @@ export default function AllergenMap() {
     const composites = compositesRef.current;
     if (!canvas || !grid || composites.length === 0) return;
     const { ncols, nrows, west, east, south, north } = grid;
-    paintCanvas(canvas, composites[month], ncols, nrows, 0, 1, west, east, south, north);
+    paintCanvas(canvas, composites[month], ncols, nrows, 0, scaleHiRef.current, west, east, south, north);
   }, [month]);
 
   // ── Render ────────────────────────────────────────────────────────────────
