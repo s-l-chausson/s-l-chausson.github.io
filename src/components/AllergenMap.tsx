@@ -9,13 +9,28 @@ interface AllergenConfig {
 }
 
 // ── Species available for weight customisation ────────────────────────────────
-// Extend this list to expose more allergens in the UI; the corresponding
-// .bin files will be fetched on first load.
-const SPECIES_CONFIG: { key: string; label: string }[] = [
-  { key: 'birch', label: 'Birch' },
-  { key: 'pm25',  label: 'PM₂.₅' },
+// key       — used in allergen_config.json (season profiles, weights)
+// label     — display name in the UI
+// fileKey   — .bin filename when it differs from key (grass → grassland.bin)
+// defaultWeight — from the McInnes et al. methodology (allergen_config.json)
+const SPECIES_CONFIG: {
+  key: string; label: string; fileKey?: string; defaultWeight: number;
+}[] = [
+  // ── Pollen allergens ──────────────────────────────────────
+  { key: 'grass',    label: 'Grass',     fileKey: 'grassland', defaultWeight: 0.9  },
+  { key: 'birch',    label: 'Birch',                           defaultWeight: 0.55 },
+  { key: 'hazel',    label: 'Hazel',                           defaultWeight: 0.5  },
+  { key: 'alder',    label: 'Alder',                           defaultWeight: 0.45 },
+  { key: 'oak',      label: 'Oak',                             defaultWeight: 0.3  },
+  { key: 'ash',      label: 'Ash',                             defaultWeight: 0.25 },
+  { key: 'mugwort',  label: 'Mugwort',                         defaultWeight: 0.15 },
+  { key: 'plane',    label: 'Plane',                           defaultWeight: 0.15 },
+  { key: 'plantain', label: 'Plantain',                        defaultWeight: 0.12 },
+  { key: 'nettle',   label: 'Nettle',                          defaultWeight: 0.1  },
+  // ── Air pollutants ────────────────────────────────────────
+  { key: 'no2',      label: 'NO₂',                             defaultWeight: 0.15 },
+  { key: 'pm25',     label: 'PM₂.₅',                          defaultWeight: 0.15 },
 ];
-const DEFAULT_WEIGHT = '1';
 
 // ── Colour ramp (YlOrRd sequential) ──────────────────────────────────────────
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
@@ -163,7 +178,7 @@ export default function AllergenMap() {
   const [month, setMonth]             = useState(() => new Date().getMonth());
   // String values so the <input> is fully controlled while the user types
   const [weightInputs, setWeightInputs] = useState<Record<string, string>>(
-    () => Object.fromEntries(SPECIES_CONFIG.map(({ key }) => [key, DEFAULT_WEIGHT])),
+    () => Object.fromEntries(SPECIES_CONFIG.map(({ key, defaultWeight }) => [key, String(defaultWeight)])),
   );
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -231,16 +246,22 @@ export default function AllergenMap() {
         nPixelsRef.current = ncols * nrows;
         seasonRef.current  = config.season;
 
-        // Fetch all species in parallel
+        // Fetch all species in parallel (fileKey overrides key for the filename)
         const buffers = await Promise.all(
-          keys.map(k => fetch(`/data/${k}.bin`).then(r => r.arrayBuffer())),
+          SPECIES_CONFIG.map(({ key, fileKey }) =>
+            fetch(`/data/${fileKey ?? key}.bin`).then(r => r.arrayBuffer()),
+          ),
         );
         if (cancelled) return;
 
-        keys.forEach((k, i) => { layersRef.current[k] = new Float32Array(buffers[i]); });
+        SPECIES_CONFIG.forEach(({ key }, i) => {
+          layersRef.current[key] = new Float32Array(buffers[i]);
+        });
 
-        // Initial weights: all DEFAULT_WEIGHT
-        const initWeights = Object.fromEntries(keys.map(k => [k, parseFloat(DEFAULT_WEIGHT)]));
+        // Initial weights from SPECIES_CONFIG defaultWeight values
+        const initWeights = Object.fromEntries(
+          SPECIES_CONFIG.map(({ key, defaultWeight }) => [key, defaultWeight]),
+        );
         rebuildComposites(initWeights);
 
         // Create canvas + add MapLibre source
