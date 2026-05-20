@@ -12,24 +12,27 @@ interface AllergenConfig {
 // key           — must match both the .bin filename and allergen_config.json
 // label         — display name in the UI
 // defaultWeight — from the McInnes et al. methodology (allergen_config.json)
+// group         — 'pollen' enters CI_allergens; 'pollutant' enters CI_pollutants
 const SPECIES_CONFIG: {
-  key: string; label: string; defaultWeight: number;
+  key: string; label: string; defaultWeight: number; group: 'pollen' | 'pollutant';
 }[] = [
   // ── Pollen allergens ──────────────────────────────────────
-  { key: 'grass',    label: 'Grass',    defaultWeight: 0.9  },
-  { key: 'birch',    label: 'Birch',    defaultWeight: 0.55 },
-  { key: 'hazel',    label: 'Hazel',    defaultWeight: 0.5  },
-  { key: 'alder',    label: 'Alder',    defaultWeight: 0.45 },
-  { key: 'oak',      label: 'Oak',      defaultWeight: 0.3  },
-  { key: 'ash',      label: 'Ash',      defaultWeight: 0.25 },
-  { key: 'mugwort',  label: 'Mugwort',  defaultWeight: 0.15 },
-  { key: 'plane',    label: 'Plane',    defaultWeight: 0.15 },
-  { key: 'plantain', label: 'Plantain', defaultWeight: 0.12 },
-  { key: 'nettle',   label: 'Nettle',   defaultWeight: 0.1  },
+  { key: 'grass',    label: 'Grass',    defaultWeight: 0.9,  group: 'pollen' },
+  { key: 'birch',    label: 'Birch',    defaultWeight: 0.55, group: 'pollen' },
+  { key: 'hazel',    label: 'Hazel',    defaultWeight: 0.5,  group: 'pollen' },
+  { key: 'alder',    label: 'Alder',    defaultWeight: 0.45, group: 'pollen' },
+  { key: 'oak',      label: 'Oak',      defaultWeight: 0.3,  group: 'pollen' },
+  { key: 'ash',      label: 'Ash',      defaultWeight: 0.25, group: 'pollen' },
+  { key: 'mugwort',  label: 'Mugwort',  defaultWeight: 0.15, group: 'pollen' },
+  { key: 'plane',    label: 'Plane',    defaultWeight: 0.15, group: 'pollen' },
+  { key: 'plantain', label: 'Plantain', defaultWeight: 0.12, group: 'pollen' },
+  { key: 'nettle',   label: 'Nettle',   defaultWeight: 0.1,  group: 'pollen' },
   // ── Air pollutants ────────────────────────────────────────
-  { key: 'no2',      label: 'NO₂',      defaultWeight: 0.15 },
-  { key: 'pm25',     label: 'PM₂.₅',   defaultWeight: 0.15 },
+  { key: 'no2',      label: 'NO₂',      defaultWeight: 0.5,  group: 'pollutant' },
+  { key: 'pm25',     label: 'PM₂.₅',   defaultWeight: 0.5,  group: 'pollutant' },
 ];
+
+const DEFAULT_K = 0.3; // pollution amplification factor
 
 // ── Colour ramp (YlOrRd sequential) ──────────────────────────────────────────
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
@@ -58,41 +61,61 @@ function colorRamp(t: number): [number, number, number] {
 }
 
 // ── Composite computation ─────────────────────────────────────────────────────
+// Formula: CI_overall = CI_allergens × (1 + k × CI_pollutants)
+//   CI_allergens  = Σ_pollen  weight × season[month] × layer
+//   CI_pollutants = Σ_pollutant weight × layer   (season is all-ones for pollutants)
+// When k = 0 the result reduces to CI_allergens only.
+// When pollution = 0 the result equals CI_allergens with no penalty.
+const POLLEN_KEYS    = SPECIES_CONFIG.filter(s => s.group === 'pollen'   ).map(s => s.key);
+const POLLUTANT_KEYS = SPECIES_CONFIG.filter(s => s.group === 'pollutant').map(s => s.key);
+
 function computeComposite(
   month:   number,
   layers:  Record<string, Float32Array>,
   weights: Record<string, number>,
   season:  Record<string, number[]>,
   nPixels: number,
+  k:       number,
 ): Float32Array {
   const out = new Float32Array(nPixels);
   for (let i = 0; i < nPixels; i++) {
-    let sum  = 0;
-    let land = false;
-    for (const [species, layer] of Object.entries(layers)) {
-      if (!isFinite(layer[i])) continue;
+    let allergen  = 0;
+    let pollutant = 0;
+    let land      = false;
+    for (const key of POLLEN_KEYS) {
+      const v = layers[key]?.[i];
+      if (v == null || !isFinite(v)) continue;
       land = true;
-      sum += (weights[species] ?? 0) * (season[species]?.[month] ?? 1) * layer[i];
+      allergen += (weights[key] ?? 0) * (season[key]?.[month] ?? 1) * v;
     }
-    out[i] = land ? sum : NaN;
+    for (const key of POLLUTANT_KEYS) {
+      const v = layers[key]?.[i];
+      if (v == null || !isFinite(v)) continue;
+      land = true;
+      pollutant += (weights[key] ?? 0) * v;
+    }
+    out[i] = land ? allergen * (1 + k * pollutant) : NaN;
   }
   return out;
 }
 
 // ── Colour scale upper bound ──────────────────────────────────────────────────
-// hi = Σ_s weight_s × max(season_s)  — the theoretical maximum composite.
-// lo is always 0 (off-season / zero exposure → pale end of ramp).
+// hi_allergens  = Σ_pollen   weight × max(season)
+// hi_pollutants = Σ_pollutant weight               (season max = 1)
+// hi_overall    = hi_allergens × (1 + k × hi_pollutants)
 function computeScaleHi(
   weights: Record<string, number>,
   season:  Record<string, number[]>,
+  k:       number,
 ): number {
-  return Math.max(
-    Object.entries(weights).reduce((sum, [s, w]) => {
-      const maxSf = Math.max(...(season[s] ?? [1]));
-      return sum + w * maxSf;
-    }, 0),
-    1e-6,
-  );
+  const hiAllergen = POLLEN_KEYS.reduce((sum, key) => {
+    const maxSf = Math.max(...(season[key] ?? [1]));
+    return sum + (weights[key] ?? 0) * maxSf;
+  }, 0);
+  const hiPollutant = POLLUTANT_KEYS.reduce((sum, key) => {
+    return sum + (weights[key] ?? 0); // season max = 1 for all pollutants
+  }, 0);
+  return Math.max(hiAllergen * (1 + k * hiPollutant), 1e-6);
 }
 
 // ── Canvas painter (Mercator-corrected) ───────────────────────────────────────
@@ -149,6 +172,33 @@ function paintCanvas(
   ctx.putImageData(img, 0, 0);
 }
 
+// ── Shared weight row ─────────────────────────────────────────────────────────
+function WeightRow({ label, value, onChange }: {
+  label: string; value: string; onChange: (v: string) => void;
+}) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center',
+      justifyContent: 'space-between', marginBottom: 7, gap: 8,
+    }}>
+      <label style={{ fontSize: 12, color: '#57534e', whiteSpace: 'nowrap' }}>
+        {label}
+      </label>
+      <input
+        type="number" min={0} step="any"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        style={{
+          width: 58, fontSize: 12, padding: '3px 6px',
+          border: '1px solid #d6d3d1', borderRadius: 5,
+          textAlign: 'right', outline: 'none',
+          color: '#1c1917', background: '#fff',
+        }}
+      />
+    </div>
+  );
+}
+
 // ── Month names ───────────────────────────────────────────────────────────────
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -179,6 +229,7 @@ export default function AllergenMap() {
   const [weightInputs, setWeightInputs] = useState<Record<string, string>>(
     () => Object.fromEntries(SPECIES_CONFIG.map(({ key, defaultWeight }) => [key, String(defaultWeight)])),
   );
+  const [kInput, setKInput] = useState(String(DEFAULT_K));
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function repaint(m: number) {
@@ -193,13 +244,13 @@ export default function AllergenMap() {
     );
   }
 
-  function rebuildComposites(weights: Record<string, number>) {
+  function rebuildComposites(weights: Record<string, number>, k: number) {
     const n = nPixelsRef.current;
     if (n === 0) return;
     compositesRef.current = Array.from({ length: 12 }, (_, m) =>
-      computeComposite(m, layersRef.current, weights, seasonRef.current, n),
+      computeComposite(m, layersRef.current, weights, seasonRef.current, n, k),
     );
-    scaleHiRef.current = computeScaleHi(weights, seasonRef.current);
+    scaleHiRef.current = computeScaleHi(weights, seasonRef.current, k);
   }
 
   // ── Generate handler ──────────────────────────────────────────────────────
@@ -209,7 +260,8 @@ export default function AllergenMap() {
       const v = parseFloat(weightInputs[key]);
       weights[key] = isFinite(v) && v >= 0 ? v : 0;
     }
-    rebuildComposites(weights);
+    const k = Math.max(0, isFinite(parseFloat(kInput)) ? parseFloat(kInput) : DEFAULT_K);
+    rebuildComposites(weights, k);
     repaint(month);
   }
 
@@ -259,7 +311,7 @@ export default function AllergenMap() {
         const initWeights = Object.fromEntries(
           SPECIES_CONFIG.map(({ key, defaultWeight }) => [key, defaultWeight]),
         );
-        rebuildComposites(initWeights);
+        rebuildComposites(initWeights, DEFAULT_K);
 
         // Create canvas + add MapLibre source
         const canvas = document.createElement('canvas');
@@ -368,43 +420,59 @@ export default function AllergenMap() {
 
       {/* ── Sidebar — weights panel ───────────────────────────────────────────── */}
       <div style={{
-        width: 200, flexShrink: 0,
+        width: 210, flexShrink: 0,
         display: 'flex', flexDirection: 'column',
         background: '#fafaf9',
         border: '1px solid #e7e5e4',
         borderRadius: 10,
         padding: '14px 14px 12px',
       }}>
-        <p style={{ fontSize: 13, fontWeight: 700, color: '#44403c', margin: '0 0 12px' }}>
-          Allergen weights
-        </p>
 
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {SPECIES_CONFIG.map(({ key, label }) => (
-            <div key={key} style={{
-              display: 'flex', alignItems: 'center',
-              justifyContent: 'space-between', marginBottom: 8, gap: 8,
-            }}>
-              <label style={{ fontSize: 12, color: '#57534e', whiteSpace: 'nowrap' }}>
-                {label}
-              </label>
-              <input
-                type="number"
-                min={0}
-                step="any"
-                value={weightInputs[key]}
-                onChange={e =>
-                  setWeightInputs(prev => ({ ...prev, [key]: e.target.value }))
-                }
-                style={{
-                  width: 58, fontSize: 12, padding: '3px 6px',
-                  border: '1px solid #d6d3d1', borderRadius: 5,
-                  textAlign: 'right', outline: 'none',
-                  color: '#1c1917', background: '#fff',
-                }}
-              />
-            </div>
+        {/* ── Pollen allergens ── */}
+        <p style={{ fontSize: 11, fontWeight: 700, color: '#78716c', textTransform: 'uppercase',
+                    letterSpacing: '0.05em', margin: '0 0 8px' }}>
+          Pollen allergens
+        </p>
+        <div style={{ overflowY: 'auto' }}>
+          {SPECIES_CONFIG.filter(s => s.group === 'pollen').map(({ key, label }) => (
+            <WeightRow key={key} label={label} value={weightInputs[key]}
+              onChange={v => setWeightInputs(prev => ({ ...prev, [key]: v }))} />
           ))}
+        </div>
+
+        {/* ── Divider ── */}
+        <div style={{ borderTop: '1px solid #e7e5e4', margin: '10px 0' }} />
+
+        {/* ── Air pollutants ── */}
+        <p style={{ fontSize: 11, fontWeight: 700, color: '#78716c', textTransform: 'uppercase',
+                    letterSpacing: '0.05em', margin: '0 0 8px' }}>
+          Air pollutants
+        </p>
+        {SPECIES_CONFIG.filter(s => s.group === 'pollutant').map(({ key, label }) => (
+          <WeightRow key={key} label={label} value={weightInputs[key]}
+            onChange={v => setWeightInputs(prev => ({ ...prev, [key]: v }))} />
+        ))}
+
+        {/* Amplification factor k */}
+        <div style={{ marginTop: 6, padding: '8px 8px 6px', background: '#f5f5f4',
+                      borderRadius: 7, border: '1px solid #e7e5e4' }}>
+          <p style={{ fontSize: 11, color: '#57534e', margin: '0 0 2px' }}>
+            Amplification factor <em>k</em>
+          </p>
+          <p style={{ fontSize: 10, color: '#a8a29e', margin: '0 0 6px', lineHeight: 1.4 }}>
+            CI = CI<sub>pollen</sub> × (1 + <em>k</em> × CI<sub>poll.</sub>)
+          </p>
+          <input
+            type="number" min={0} step="0.05"
+            value={kInput}
+            onChange={e => setKInput(e.target.value)}
+            style={{
+              width: '100%', fontSize: 12, padding: '3px 6px',
+              border: '1px solid #d6d3d1', borderRadius: 5,
+              textAlign: 'right', outline: 'none', boxSizing: 'border-box',
+              color: '#1c1917', background: '#fff',
+            }}
+          />
         </div>
 
         <button
