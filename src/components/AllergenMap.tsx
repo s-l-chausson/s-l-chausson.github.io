@@ -178,6 +178,112 @@ function paintCanvas(
   ctx.putImageData(img, 0, 0);
 }
 
+// ── Distribution histogram ────────────────────────────────────────────────────
+// Per-month stats computed once on Generate (O(n) histogram, no sort needed).
+interface MonthStats { q50: number; q90: number; q95: number; q99: number; dataMax: number; }
+
+function computeMonthStats(data: Float32Array): MonthStats {
+  let lo = Infinity, hi = -Infinity, count = 0;
+  for (let i = 0; i < data.length; i++) {
+    const v = data[i];
+    if (!isFinite(v)) continue;
+    if (v < lo) lo = v; if (v > hi) hi = v; count++;
+  }
+  if (count === 0) return { q50: 0, q90: 0, q95: 0, q99: 0, dataMax: 0 };
+  const N = 2000;
+  const range = Math.max(hi - lo, 1e-9);
+  const bins = new Int32Array(N);
+  for (let i = 0; i < data.length; i++) {
+    const v = data[i];
+    if (!isFinite(v)) continue;
+    bins[Math.min(Math.floor(((v - lo) / range) * N), N - 1)]++;
+  }
+  const quantile = (p: number) => {
+    const target = p * count; let cum = 0;
+    for (let b = 0; b < N; b++) { cum += bins[b]; if (cum >= target) return lo + (b / N) * range; }
+    return hi;
+  };
+  return { q50: quantile(0.50), q90: quantile(0.90), q95: quantile(0.95), q99: quantile(0.99), dataMax: hi };
+}
+
+const HIST_BINS = 80;
+
+function drawHistogram(
+  canvas: HTMLCanvasElement,
+  data: Float32Array,
+  scaleMax: number,
+  stats: MonthStats,
+) {
+  const dpr   = window.devicePixelRatio || 1;
+  const cssW  = canvas.clientWidth  || 600;
+  const cssH  = canvas.clientHeight || 90;
+  canvas.width  = cssW * dpr;
+  canvas.height = cssH * dpr;
+  const ctx = canvas.getContext('2d')!;
+  ctx.scale(dpr, dpr);
+
+  const PAD = { top: 6, right: 10, bottom: 22, left: 10 };
+  const W = cssW, H = cssH;
+  const pw = W - PAD.left - PAD.right;
+  const ph = H - PAD.top  - PAD.bottom;
+
+  // x-axis upper bound: a bit beyond max(scaleMax, q99) so the tail is visible
+  const plotMax = Math.max(scaleMax * 1.05, stats.q99 * 1.10, 1e-6);
+
+  // Bin counts (linear scan — fast)
+  const counts = new Int32Array(HIST_BINS);
+  for (let i = 0; i < data.length; i++) {
+    const v = data[i];
+    if (!isFinite(v)) continue;
+    counts[Math.min(Math.floor((v / plotMax) * HIST_BINS), HIST_BINS - 1)]++;
+  }
+  const maxCount = Math.max(...counts, 1);
+
+  // Background
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+
+  // Bars — colour matches the map ramp (t mapped to scaleMax, not plotMax)
+  const bw = pw / HIST_BINS;
+  for (let i = 0; i < HIST_BINS; i++) {
+    if (counts[i] === 0) continue;
+    const t = Math.min(((i + 0.5) / HIST_BINS) * (plotMax / scaleMax), 1);
+    const [r, g, b] = colorRamp(t);
+    const bh = (counts[i] / maxCount) * ph;
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(PAD.left + i * bw, PAD.top + ph - bh, bw + 0.5, bh);
+  }
+
+  ctx.font = '9px system-ui,sans-serif';
+
+  // Quantile markers
+  for (const { v, label } of [
+    { v: stats.q50, label: 'p50' }, { v: stats.q90, label: 'p90' },
+    { v: stats.q95, label: 'p95' }, { v: stats.q99, label: 'p99' },
+  ]) {
+    if (v <= 0 || v > plotMax) continue;
+    const x = PAD.left + (v / plotMax) * pw;
+    ctx.strokeStyle = 'rgba(100,100,100,0.45)';
+    ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + ph); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#78716c'; ctx.textAlign = 'center';
+    ctx.fillText(label, x, PAD.top + ph + 14);
+  }
+
+  // Scale-max line (red dashed)
+  const smX = PAD.left + (scaleMax / plotMax) * pw;
+  ctx.strokeStyle = '#e31a1c'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.moveTo(smX, PAD.top); ctx.lineTo(smX, PAD.top + ph); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#e31a1c'; ctx.textAlign = smX > W * 0.8 ? 'right' : 'center';
+  ctx.fillText('scale max', smX, PAD.top + ph + 14);
+
+  // 0 label
+  ctx.fillStyle = '#a8a29e'; ctx.textAlign = 'left';
+  ctx.fillText('0', PAD.left, PAD.top + ph + 14);
+}
+
 // ── Shared weight row ─────────────────────────────────────────────────────────
 function WeightRow({ label, value, onChange }: {
   label: string; value: string; onChange: (v: string) => void;
@@ -215,6 +321,7 @@ const MONTH_NAMES = [
 export default function AllergenMap() {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef    = useRef<HTMLCanvasElement | null>(null);
+  const histCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Persisted across renders — set once on load, read in handleGenerate
   const layersRef    = useRef<Record<string, Float32Array>>({});
@@ -226,8 +333,9 @@ export default function AllergenMap() {
   } | null>(null);
 
   // Derived from current weights — updated by handleGenerate
-  const compositesRef = useRef<Float32Array[]>([]);
-  const scaleHiRef    = useRef<number>(1);
+  const compositesRef  = useRef<Float32Array[]>([]);
+  const scaleHiRef     = useRef<number>(1);
+  const monthStatsRef  = useRef<MonthStats[]>([]);
 
   const [status, setStatus]           = useState<'loading' | 'ready' | 'error'>('loading');
   const [month, setMonth]             = useState(() => new Date().getMonth());
@@ -249,6 +357,9 @@ export default function AllergenMap() {
       ncols, nrows, 0, scaleHiRef.current,
       west, east, south, north,
     );
+    if (histCanvasRef.current && monthStatsRef.current[m]) {
+      drawHistogram(histCanvasRef.current, compositesRef.current[m], scaleHiRef.current, monthStatsRef.current[m]);
+    }
   }
 
   function rebuildComposites(weights: Record<string, number>, k: number) {
@@ -258,6 +369,7 @@ export default function AllergenMap() {
       computeComposite(m, layersRef.current, weights, seasonRef.current, n, k),
     );
     scaleHiRef.current = computeScaleHi(weights, seasonRef.current, k);
+    monthStatsRef.current = compositesRef.current.map(computeMonthStats);
   }
 
   // ── Generate handler ──────────────────────────────────────────────────────
@@ -359,8 +471,17 @@ export default function AllergenMap() {
   // ── Effect 2: repaint when month slider moves ─────────────────────────────
   useEffect(() => { repaint(month); }, [month]);
 
+  // ── Effect 3: draw histogram once the canvas element mounts (status→ready) ──
+  useEffect(() => {
+    if (status !== 'ready') return;
+    if (histCanvasRef.current && monthStatsRef.current[month]) {
+      drawHistogram(histCanvasRef.current, compositesRef.current[month], scaleHiRef.current, monthStatsRef.current[month]);
+    }
+  }, [status]);
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
     <div style={{ display: 'flex', alignItems: 'stretch', gap: 16, width: '100%' }}>
 
       {/* ── Map column ───────────────────────────────────────────────────────── */}
@@ -522,6 +643,35 @@ export default function AllergenMap() {
         </button>
       </div>
 
-    </div>
+    </div>{/* end map+sidebar row */}
+
+      {/* ── Histogram panel ── */}
+      {status === 'ready' && (
+        <div style={{
+          background: '#fff', border: '1px solid #e7e5e4',
+          borderRadius: 8, padding: '8px 12px 6px',
+        }}>
+          <p style={{ fontSize: 11, fontWeight: 600, color: '#78716c', margin: '0 0 4px' }}>
+            Distribution of composite values — {MONTH_NAMES[month]}
+          </p>
+          <canvas ref={histCanvasRef} style={{ display: 'block', width: '100%', height: 90 }} />
+          <div style={{ display: 'flex', gap: 16, marginTop: 3, fontSize: 10, color: '#a8a29e' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <svg width="20" height="8">
+                <line x1="0" y1="4" x2="20" y2="4" stroke="#e31a1c" strokeWidth="1.5" strokeDasharray="4 3"/>
+              </svg>
+              colour scale max
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <svg width="20" height="8">
+                <line x1="0" y1="4" x2="20" y2="4" stroke="rgba(100,100,100,0.5)" strokeWidth="1" strokeDasharray="3 3"/>
+              </svg>
+              p50 · p90 · p95 · p99
+            </span>
+          </div>
+        </div>
+      )}
+
+    </div>{/* end outer column */}
   );
 }
