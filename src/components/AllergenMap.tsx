@@ -510,16 +510,13 @@ export default function AllergenMap() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
-    <div style={{
-      display: 'flex',
-      flexDirection: isMobile ? 'column' : 'row',
-      alignItems: 'stretch',
-      gap: 16,
-      width: '100%',
-    }}>
+    {/* flex-col on mobile, flex-row on sm+ — resolved by CSS before first paint
+        so MapLibre always initialises into a correctly-sized container */}
+    <div className="flex flex-col sm:flex-row items-stretch w-full" style={{ gap: 16 }}>
 
       {/* ── Map column ───────────────────────────────────────────────────────── */}
-      <div style={{ position: 'relative', flex: '1 1 0', minWidth: 0, height: isMobile ? '420px' : '640px' }}>
+      {/* h-[420px] on mobile, h-[640px] on sm+ — via CSS, not JS state */}
+      <div className="relative flex-1 min-w-0 h-[420px] sm:h-[640px]">
         <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
         {/* Loading */}
@@ -586,9 +583,8 @@ export default function AllergenMap() {
       </div>
 
       {/* ── Sidebar — weights panel ───────────────────────────────────────────── */}
-      <div style={{
-        width: isMobile ? '100%' : 210,
-        flexShrink: isMobile ? 1 : 0,
+      {/* w-full on mobile, fixed 210 px on sm+ */}
+      <div className="w-full sm:w-[210px] sm:shrink-0" style={{
         display: 'flex', flexDirection: 'column',
         background: '#fafaf9',
         border: '1px solid #e7e5e4',
