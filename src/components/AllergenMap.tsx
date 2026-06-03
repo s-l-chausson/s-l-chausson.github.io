@@ -222,7 +222,7 @@ function drawHistogram(
   const ctx = canvas.getContext('2d')!;
   ctx.scale(dpr, dpr);
 
-  const PAD = { top: 6, right: 10, bottom: 22, left: 10 };
+  const PAD = { top: 6, right: 10, bottom: 36, left: 10 };
   const W = cssW, H = cssH;
   const pw = W - PAD.left - PAD.right;
   const ph = H - PAD.top  - PAD.bottom;
@@ -256,6 +256,9 @@ function drawHistogram(
 
   ctx.font = '9px system-ui,sans-serif';
 
+  const labelY  = PAD.top + ph + 13;
+  const valueY  = PAD.top + ph + 25;
+
   // Quantile markers
   for (const { v, label } of [
     { v: stats.q50, label: 'p50' }, { v: stats.q90, label: 'p90' },
@@ -267,21 +270,27 @@ function drawHistogram(
     ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
     ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + ph); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = '#78716c'; ctx.textAlign = 'center';
-    ctx.fillText(label, x, PAD.top + ph + 14);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#78716c';
+    ctx.fillText(label, x, labelY);
+    ctx.fillStyle = '#a8a29e';
+    ctx.fillText(v.toFixed(2), x, valueY);
   }
 
   // Scale-max line (red dashed)
-  const smX = PAD.left + (scaleMax / plotMax) * pw;
+  const smX  = PAD.left + (scaleMax / plotMax) * pw;
+  const smAl = smX > W * 0.85 ? 'right' : 'center';
   ctx.strokeStyle = '#e31a1c'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
   ctx.beginPath(); ctx.moveTo(smX, PAD.top); ctx.lineTo(smX, PAD.top + ph); ctx.stroke();
   ctx.setLineDash([]);
-  ctx.fillStyle = '#e31a1c'; ctx.textAlign = smX > W * 0.8 ? 'right' : 'center';
-  ctx.fillText('scale max', smX, PAD.top + ph + 14);
+  ctx.textAlign = smAl;
+  ctx.fillStyle = '#e31a1c';
+  ctx.fillText('max', smX, labelY);
+  ctx.fillText(scaleMax.toFixed(2), smX, valueY);
 
   // 0 label
   ctx.fillStyle = '#a8a29e'; ctx.textAlign = 'left';
-  ctx.fillText('0', PAD.left, PAD.top + ph + 14);
+  ctx.fillText('0', PAD.left, labelY);
 }
 
 // ── Shared weight row ─────────────────────────────────────────────────────────
