@@ -643,7 +643,7 @@ export default function AllergenMap() {
         </button>
       </div>
 
-    </div>{/* end map+sidebar row */}
+    </div>
 
       {/* ── Histogram panel ── */}
       {status === 'ready' && (
@@ -672,6 +672,6 @@ export default function AllergenMap() {
         </div>
       )}
 
-    </div>{/* end outer column */}
+    </div>
   );
 }
