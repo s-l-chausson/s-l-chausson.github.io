@@ -235,7 +235,8 @@ export default function AllergenMap() {
   const [weightInputs, setWeightInputs] = useState<Record<string, string>>(
     () => Object.fromEntries(SPECIES_CONFIG.map(({ key, defaultWeight }) => [key, String(defaultWeight)])),
   );
-  const [kInput, setKInput] = useState(String(DEFAULT_K));
+  const [kInput, setKInput]           = useState(String(DEFAULT_K));
+  const [scaleMaxInput, setScaleMaxInput] = useState<string>(''); // filled after load
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function repaint(m: number) {
@@ -268,6 +269,9 @@ export default function AllergenMap() {
     }
     const k = Math.max(0, isFinite(parseFloat(kInput)) ? parseFloat(kInput) : DEFAULT_K);
     rebuildComposites(weights, k);
+    // Override computed max with the user-supplied value if it's valid
+    const manualMax = parseFloat(scaleMaxInput);
+    if (isFinite(manualMax) && manualMax > 0) scaleHiRef.current = manualMax;
     repaint(month);
   }
 
@@ -318,6 +322,8 @@ export default function AllergenMap() {
           SPECIES_CONFIG.map(({ key, defaultWeight }) => [key, defaultWeight]),
         );
         rebuildComposites(initWeights, DEFAULT_K);
+        // Expose the default-profile max so the user can see and reuse it
+        setScaleMaxInput(scaleHiRef.current.toFixed(3));
 
         // Create canvas + add MapLibre source
         const canvas = document.createElement('canvas');
@@ -479,6 +485,28 @@ export default function AllergenMap() {
               color: '#1c1917', background: '#fff',
             }}
           />
+        </div>
+
+        {/* Colour scale maximum */}
+        <div style={{ marginTop: 6, padding: '8px 8px 6px', background: '#f5f5f4',
+                      borderRadius: 7, border: '1px solid #e7e5e4' }}>
+          <p style={{ fontSize: 11, color: '#57534e', margin: '0 0 6px' }}>
+            Colour scale max
+          </p>
+          <input
+            type="number" min={0} step="0.01"
+            value={scaleMaxInput}
+            onChange={e => setScaleMaxInput(e.target.value)}
+            style={{
+              width: '100%', fontSize: 12, padding: '3px 6px',
+              border: '1px solid #d6d3d1', borderRadius: 5,
+              textAlign: 'right', outline: 'none', boxSizing: 'border-box',
+              color: '#1c1917', background: '#fff',
+            }}
+          />
+          <p style={{ fontSize: 10, color: '#a8a29e', margin: '4px 0 0', lineHeight: 1.4 }}>
+            Default = max under average profile
+          </p>
         </div>
 
         <button
