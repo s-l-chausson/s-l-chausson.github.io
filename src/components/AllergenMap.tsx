@@ -515,8 +515,10 @@ export default function AllergenMap() {
     <div className="flex flex-col sm:flex-row items-stretch w-full" style={{ gap: 16 }}>
 
       {/* ── Map column ───────────────────────────────────────────────────────── */}
-      {/* h-[420px] on mobile, h-[640px] on sm+ — via CSS, not JS state */}
-      <div className="relative flex-1 min-w-0 h-[420px] sm:h-[640px]">
+      {/* Mobile: w-full + explicit h so MapLibre sees real dimensions at init.
+          flex-1 must be sm:-only — in a flex-col, flex-basis:0 applies to
+          HEIGHT and would collapse the container to 0 px. */}
+      <div className="relative w-full min-w-0 h-[420px] sm:flex-1 sm:h-[640px]">
         <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
         {/* Loading */}
