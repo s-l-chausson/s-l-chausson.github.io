@@ -331,6 +331,7 @@ export default function AllergenMap() {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef    = useRef<HTMLCanvasElement | null>(null);
   const histCanvasRef = useRef<HTMLCanvasElement>(null);
+  const mapRef       = useRef<maplibregl.Map | null>(null);
 
   // Persisted across renders — set once on load, read in handleGenerate
   const layersRef    = useRef<Record<string, Float32Array>>({});
@@ -354,6 +355,7 @@ export default function AllergenMap() {
   );
   const [kInput, setKInput]           = useState(String(DEFAULT_K));
   const [scaleMaxInput, setScaleMaxInput] = useState<string>(''); // filled after load
+  const [isMobile, setIsMobile]       = useState(false);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function repaint(m: number) {
@@ -407,6 +409,7 @@ export default function AllergenMap() {
       zoom: 5,
       attributionControl: false,
     });
+    mapRef.current = map;
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
     map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
@@ -474,7 +477,7 @@ export default function AllergenMap() {
       }
     });
 
-    return () => { cancelled = true; map.remove(); };
+    return () => { cancelled = true; mapRef.current = null; map.remove(); };
   }, []);
 
   // ── Effect 2: repaint when month slider moves ─────────────────────────────
@@ -488,13 +491,35 @@ export default function AllergenMap() {
     }
   }, [status]);
 
+  // ── Effect 4: track viewport width for responsive layout ─────────────────
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 640px)');
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    setIsMobile(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  // ── Effect 5: tell MapLibre to recalculate its canvas when layout changes ─
+  useEffect(() => {
+    // Small delay so the DOM has reflowed before MapLibre measures the container
+    const t = setTimeout(() => mapRef.current?.resize(), 50);
+    return () => clearTimeout(t);
+  }, [isMobile]);
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
-    <div style={{ display: 'flex', alignItems: 'stretch', gap: 16, width: '100%' }}>
+    <div style={{
+      display: 'flex',
+      flexDirection: isMobile ? 'column' : 'row',
+      alignItems: 'stretch',
+      gap: 16,
+      width: '100%',
+    }}>
 
       {/* ── Map column ───────────────────────────────────────────────────────── */}
-      <div style={{ position: 'relative', flex: '1 1 0', minWidth: 0, height: '640px' }}>
+      <div style={{ position: 'relative', flex: '1 1 0', minWidth: 0, height: isMobile ? '420px' : '640px' }}>
         <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
         {/* Loading */}
@@ -550,7 +575,7 @@ export default function AllergenMap() {
           />
           <div style={{
             display: 'flex', justifyContent: 'space-between',
-            fontSize: 10, color: '#a8a29e', marginTop: 3,
+            fontSize: isMobile ? 9 : 10, color: '#a8a29e', marginTop: 3,
             userSelect: 'none',
           }}>
             {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map(m => (
@@ -562,7 +587,8 @@ export default function AllergenMap() {
 
       {/* ── Sidebar — weights panel ───────────────────────────────────────────── */}
       <div style={{
-        width: 210, flexShrink: 0,
+        width: isMobile ? '100%' : 210,
+        flexShrink: isMobile ? 1 : 0,
         display: 'flex', flexDirection: 'column',
         background: '#fafaf9',
         border: '1px solid #e7e5e4',
@@ -575,7 +601,11 @@ export default function AllergenMap() {
                     letterSpacing: '0.05em', margin: '0 0 8px' }}>
           Pollen allergens
         </p>
-        <div style={{ overflowY: 'auto' }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr',
+          columnGap: isMobile ? 12 : 0,
+        }}>
           {SPECIES_CONFIG.filter(s => s.group === 'pollen').map(({ key, label }) => (
             <WeightRow key={key} label={label} value={weightInputs[key]}
               onChange={v => setWeightInputs(prev => ({ ...prev, [key]: v }))} />
@@ -590,53 +620,64 @@ export default function AllergenMap() {
                     letterSpacing: '0.05em', margin: '0 0 8px' }}>
           Air pollutants
         </p>
-        {SPECIES_CONFIG.filter(s => s.group === 'pollutant').map(({ key, label }) => (
-          <WeightRow key={key} label={label} value={weightInputs[key]}
-            onChange={v => setWeightInputs(prev => ({ ...prev, [key]: v }))} />
-        ))}
-
-        {/* Amplification factor k */}
-        <div style={{ marginTop: 6, padding: '8px 8px 6px', background: '#f5f5f4',
-                      borderRadius: 7, border: '1px solid #e7e5e4' }}>
-          <p style={{ fontSize: 11, color: '#57534e', margin: '0 0 2px' }}>
-            Amplification factor <em>k</em>
-          </p>
-          <p style={{ fontSize: 10, color: '#a8a29e', margin: '0 0 6px', lineHeight: 1.4 }}>
-            CI = CI<sub>pollen</sub> × (1 + <em>k</em> × CI<sub>poll.</sub>)
-          </p>
-          <input
-            type="number" min={0} step="0.05"
-            value={kInput}
-            onChange={e => setKInput(e.target.value)}
-            style={{
-              width: '100%', fontSize: 12, padding: '3px 6px',
-              border: '1px solid #d6d3d1', borderRadius: 5,
-              textAlign: 'right', outline: 'none', boxSizing: 'border-box',
-              color: '#1c1917', background: '#fff',
-            }}
-          />
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr',
+          columnGap: isMobile ? 12 : 0,
+        }}>
+          {SPECIES_CONFIG.filter(s => s.group === 'pollutant').map(({ key, label }) => (
+            <WeightRow key={key} label={label} value={weightInputs[key]}
+              onChange={v => setWeightInputs(prev => ({ ...prev, [key]: v }))} />
+          ))}
         </div>
 
-        {/* Colour scale maximum */}
-        <div style={{ marginTop: 6, padding: '8px 8px 6px', background: '#f5f5f4',
-                      borderRadius: 7, border: '1px solid #e7e5e4' }}>
-          <p style={{ fontSize: 11, color: '#57534e', margin: '0 0 6px' }}>
-            Colour scale max
-          </p>
-          <input
-            type="number" min={0} step="0.01"
-            value={scaleMaxInput}
-            onChange={e => setScaleMaxInput(e.target.value)}
-            style={{
-              width: '100%', fontSize: 12, padding: '3px 6px',
-              border: '1px solid #d6d3d1', borderRadius: 5,
-              textAlign: 'right', outline: 'none', boxSizing: 'border-box',
-              color: '#1c1917', background: '#fff',
-            }}
-          />
-          <p style={{ fontSize: 10, color: '#a8a29e', margin: '4px 0 0', lineHeight: 1.4 }}>
-            Default = max under average profile
-          </p>
+        {/* Amplification factor k + Colour scale max — side by side on mobile */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr',
+          gap: isMobile ? '0 10px' : 0,
+        }}>
+          <div style={{ marginTop: 6, padding: '8px 8px 6px', background: '#f5f5f4',
+                        borderRadius: 7, border: '1px solid #e7e5e4' }}>
+            <p style={{ fontSize: 11, color: '#57534e', margin: '0 0 2px' }}>
+              Amplification <em>k</em>
+            </p>
+            <p style={{ fontSize: 10, color: '#a8a29e', margin: '0 0 6px', lineHeight: 1.4 }}>
+              CI = CI<sub>poll</sub> × (1 + <em>k</em> × CI<sub>air</sub>)
+            </p>
+            <input
+              type="number" min={0} step="0.05"
+              value={kInput}
+              onChange={e => setKInput(e.target.value)}
+              style={{
+                width: '100%', fontSize: 12, padding: '3px 6px',
+                border: '1px solid #d6d3d1', borderRadius: 5,
+                textAlign: 'right', outline: 'none', boxSizing: 'border-box',
+                color: '#1c1917', background: '#fff',
+              }}
+            />
+          </div>
+
+          <div style={{ marginTop: 6, padding: '8px 8px 6px', background: '#f5f5f4',
+                        borderRadius: 7, border: '1px solid #e7e5e4' }}>
+            <p style={{ fontSize: 11, color: '#57534e', margin: '0 0 6px' }}>
+              Colour scale max
+            </p>
+            <input
+              type="number" min={0} step="0.01"
+              value={scaleMaxInput}
+              onChange={e => setScaleMaxInput(e.target.value)}
+              style={{
+                width: '100%', fontSize: 12, padding: '3px 6px',
+                border: '1px solid #d6d3d1', borderRadius: 5,
+                textAlign: 'right', outline: 'none', boxSizing: 'border-box',
+                color: '#1c1917', background: '#fff',
+              }}
+            />
+            <p style={{ fontSize: 10, color: '#a8a29e', margin: '4px 0 0', lineHeight: 1.4 }}>
+              Default = max under avg profile
+            </p>
+          </div>
         </div>
 
         <button
@@ -663,7 +704,7 @@ export default function AllergenMap() {
           <p style={{ fontSize: 11, fontWeight: 600, color: '#78716c', margin: '0 0 4px' }}>
             Distribution of composite values — {MONTH_NAMES[month]}
           </p>
-          <canvas ref={histCanvasRef} style={{ display: 'block', width: '100%', height: 90 }} />
+          <canvas ref={histCanvasRef} style={{ display: 'block', width: '100%', height: isMobile ? 110 : 90 }} />
           <div style={{ display: 'flex', gap: 16, marginTop: 3, fontSize: 10, color: '#a8a29e' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <svg width="20" height="8">
